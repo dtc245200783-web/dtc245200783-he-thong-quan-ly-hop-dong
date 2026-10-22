@@ -1,0 +1,15 @@
+{
+  "name": "contract-management-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple contract management web app for deployment coursework",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "prom-client": "^15.1.3"
+  }
+}
