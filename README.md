@@ -32,7 +32,7 @@ Lần đầu có thể mất vài phút để tải image. Xem log: `docker comp
 ## 3. Đăng nhập ứng dụng
 
 - Lần truy cập đầu tiên vào website sẽ chuyển tới trang `/setup`. Tạo tài khoản quản trị của bạn; không có tài khoản/mật khẩu mặc định.
-- Tên đăng nhập dài 3–32 ký tự; mật khẩu tối thiểu 12 ký tự. Mật khẩu được lưu dạng bcrypt hash trong PostgreSQL.
+- Tên đăng nhập có thể dùng chữ hoa/thường, dấu cách và ký tự Unicode; tối đa 255 ký tự. Mật khẩu tối thiểu 12 ký tự và được lưu dạng bcrypt hash trong PostgreSQL.
 - Các lần sau đăng nhập tại `/login`; đăng xuất bằng nút trên header. Session hết hạn sau 8 giờ và lưu trong PostgreSQL.
 - Đặt `SESSION_SECRET` trong `.env` thành chuỗi ngẫu nhiên dài ít nhất 64 ký tự để session tiếp tục hợp lệ sau khi container khởi động lại. Không commit `.env`.
 

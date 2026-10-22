@@ -103,11 +103,12 @@ async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_users (
       id SERIAL PRIMARY KEY,
-      username VARCHAR(32) NOT NULL UNIQUE,
+      username VARCHAR(255) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query('ALTER TABLE app_users ALTER COLUMN username TYPE VARCHAR(255)');
 }
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -160,7 +161,7 @@ function setupPage(error = '') {
   return page(`<section class="card auth-card"><h2>Tạo tài khoản quản trị</h2>
     <p class="auth-intro">Đây là lần thiết lập đầu tiên. Tài khoản này sẽ được dùng để đăng nhập quản lý hợp đồng.</p>${message}
     <form method="post" action="/setup">
-      <div class="auth-field"><label for="setup-username">Tên đăng nhập</label><input id="setup-username" name="username" required minlength="3" maxlength="32" autocomplete="username" pattern="[A-Za-z0-9_.-]{3,32}"></div>
+      <div class="auth-field"><label for="setup-username">Tên đăng nhập</label><input id="setup-username" name="username" required maxlength="255" autocomplete="username"></div>
       <div class="auth-field"><label for="setup-password">Mật khẩu</label><input id="setup-password" name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
       <div class="auth-field"><label for="setup-confirm">Nhập lại mật khẩu</label><input id="setup-confirm" name="confirm_password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
       <button class="auth-submit" type="submit">Tạo tài khoản</button>
@@ -316,10 +317,10 @@ app.get('/setup', async (_req, res) => {
 });
 
 app.post('/setup', async (req, res) => {
-  const username = String(req.body.username || '').trim().toLowerCase();
+  const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   const confirmPassword = String(req.body.confirm_password || '');
-  if (!/^[a-z0-9_.-]{3,32}$/.test(username)) return res.status(400).send(setupPage('Tên đăng nhập phải dài 3–32 ký tự, chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch nối.'));
+  if (!username || Array.from(username).length > 255) return res.status(400).send(setupPage('Tên đăng nhập là bắt buộc và tối đa 255 ký tự.'));
   if (Buffer.byteLength(password, 'utf8') < 12 || Buffer.byteLength(password, 'utf8') > 72) return res.status(400).send(setupPage('Mật khẩu phải dài từ 12 đến 72 byte.'));
   if (password !== confirmPassword) return res.status(400).send(setupPage('Hai mật khẩu không khớp.'));
 
@@ -360,7 +361,7 @@ app.get('/login', async (req, res) => {
 });
 
 app.post('/login', async (req, res) => {
-  const username = String(req.body.username || '').trim().toLowerCase();
+  const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   try {
     const result = await pool.query('SELECT id, username, password_hash FROM app_users WHERE username = $1', [username]);
