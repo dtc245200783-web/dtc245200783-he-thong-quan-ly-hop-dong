@@ -4,6 +4,7 @@ const client = require('prom-client');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const maxContractValue = 999999999999.99;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
@@ -90,7 +91,7 @@ app.get('/', async (req, res) => {
       <div><label>Mã hợp đồng *</label><input name="contract_code" required maxlength="40" placeholder="HD-2026-001"></div>
       <div><label>Tên hợp đồng *</label><input name="title" required maxlength="200" placeholder="Hợp đồng cung cấp dịch vụ"></div>
       <div><label>Bên liên quan *</label><input name="related_party" required maxlength="200" placeholder="Tên công ty / cá nhân"></div>
-      <div><label>Giá trị (VNĐ)</label><input name="contract_value" type="number" min="0" step="0.01" value="0"></div>
+      <div><label>Giá trị (VNĐ)</label><input name="contract_value" type="number" min="0" max="999999999999.99" step="0.01" value="0"></div>
       <div><label>Ngày bắt đầu</label><input name="start_date" type="date"></div><div><label>Ngày kết thúc</label><input name="end_date" type="date"></div>
       <div><label>Trạng thái</label><select name="status"><option>Nháp</option><option>Đang hiệu lực</option><option>Hết hạn</option><option>Đã hủy</option></select></div>
       <div><label>Ghi chú</label><textarea name="notes" placeholder="Thông tin bổ sung"></textarea></div></div><p><button type="submit">+ Tạo hợp đồng</button></p></form></section>
@@ -106,10 +107,14 @@ app.post('/contracts', async (req, res) => {
   if (!contract_code?.trim() || !title?.trim() || !related_party?.trim()) return res.status(400).send('Thiếu trường bắt buộc.');
   const valid = ['Nháp', 'Đang hiệu lực', 'Hết hạn', 'Đã hủy'];
   if (!valid.includes(status)) return res.status(400).send('Trạng thái không hợp lệ.');
+  const parsedContractValue = Number(contract_value || 0);
+  if (!Number.isFinite(parsedContractValue) || parsedContractValue < 0 || parsedContractValue > maxContractValue) {
+    return res.status(400).send(page('<section class="card"><h2>Giá trị hợp đồng không hợp lệ</h2><p>Giá trị phải nằm trong khoảng từ 0 đến 999.999.999.999,99 VNĐ.</p><a href="/">Quay lại biểu mẫu</a></section>'));
+  }
   try {
     await pool.query(`INSERT INTO contracts(contract_code,title,related_party,status,contract_value,start_date,end_date,notes)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [contract_code.trim(), title.trim(), related_party.trim(), status, Math.max(0, Number(contract_value || 0)), start_date || null, end_date || null, notes || '']);
+      [contract_code.trim(), title.trim(), related_party.trim(), status, parsedContractValue, start_date || null, end_date || null, notes || '']);
     res.redirect('/?created=1');
   } catch (e) {
     console.error('Create contract failed:', e.message);
