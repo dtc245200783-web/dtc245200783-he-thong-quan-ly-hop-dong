@@ -29,7 +29,14 @@ docker compose ps
 
 Lần đầu có thể mất vài phút để tải image. Xem log: `docker compose logs -f web`.
 
-## 3. Địa chỉ truy cập
+## 3. Đăng nhập ứng dụng
+
+- Lần truy cập đầu tiên vào website sẽ chuyển tới trang `/setup`. Tạo tài khoản quản trị của bạn; không có tài khoản/mật khẩu mặc định.
+- Tên đăng nhập dài 3–32 ký tự; mật khẩu tối thiểu 12 ký tự. Mật khẩu được lưu dạng bcrypt hash trong PostgreSQL.
+- Các lần sau đăng nhập tại `/login`; đăng xuất bằng nút trên header. Session hết hạn sau 8 giờ và lưu trong PostgreSQL.
+- Đặt `SESSION_SECRET` trong `.env` thành chuỗi ngẫu nhiên dài ít nhất 64 ký tự để session tiếp tục hợp lệ sau khi container khởi động lại. Không commit `.env`.
+
+## 4. Địa chỉ truy cập
 
 - Website: http://localhost:8080
 - Website HTTPS tự ký: https://localhost:8443 (trình duyệt sẽ cảnh báo chứng chỉ không được CA tin cậy)
@@ -46,7 +53,7 @@ pgAdmin đăng nhập bằng `PGADMIN_EMAIL` và `PGADMIN_PASSWORD` trong `.env`
 
 Grafana đăng nhập bằng `GRAFANA_USER` / `GRAFANA_PASSWORD`. Datasource Prometheus và Loki được provision tự động.
 
-## 4. Chức năng website
+## 5. Chức năng website
 
 - Tạo hợp đồng.
 - Xem danh sách hợp đồng và tìm kiếm.
@@ -54,11 +61,11 @@ Grafana đăng nhập bằng `GRAFANA_USER` / `GRAFANA_PASSWORD`. Datasource Pro
 - Lưu bên liên quan, giá trị, ngày bắt đầu/kết thúc, ghi chú.
 - Số liệu endpoint `/metrics` cho Prometheus; `/health` kiểm tra ứng dụng và DB.
 
-## 5. Giám sát
+## 6. Giám sát
 
 Prometheus scrape ứng dụng, cAdvisor và PostgreSQL exporter. Grafana tự động provision datasource Prometheus/Loki cùng dashboard **Contract System Overview** tại Dashboards → Contract Management. Dashboard hiển thị trạng thái scrape, request rate, bộ nhớ web, PostgreSQL exporter, CPU/bộ nhớ container và log ứng dụng. Một số metric hữu ích: `up`, `process_resident_memory_bytes`, `pg_up`, `container_cpu_usage_seconds_total`.
 
-## 6. Truy vấn LogQL mẫu
+## 7. Truy vấn LogQL mẫu
 
 Trong Grafana → Explore → chọn Loki:
 
@@ -76,22 +83,23 @@ Trong Grafana → Explore → chọn Loki:
 
 Tên label có thể khác theo phiên bản Docker/Promtail và môi trường; nếu chưa có log, mở website tạo vài request rồi chờ Promtail thu thập.
 
-## 7. Hardening đã áp dụng / cần kiểm tra
+## 8. Hardening đã áp dụng / cần kiểm tra
 
 - Backend và database nằm trong network `backend` dạng internal.
 - PostgreSQL không publish trực tiếp ra máy host.
 - Ứng dụng chạy bằng user không phải root.
 - Ứng dụng có filesystem read-only, `cap_drop: ALL`, `no-new-privileges`.
 - Nginx có security headers, HTTPS tự ký.
+- Mật khẩu tài khoản ứng dụng được bcrypt hash; session dùng cookie HttpOnly/SameSite và được lưu trong PostgreSQL.
 - Tắt đăng ký tài khoản Grafana và đặt mật khẩu qua `.env`.
 - Không commit `.env` hoặc private key lên GitHub.
 - **Lưu ý:** cAdvisor cần quyền truy cập host để thu thập metrics nên là ngoại lệ quyền cao; chỉ dùng trong môi trường học tập/local. Với môi trường thực tế, cần rà soát lại quyền và phiên bản image.
 
-## 8. Báo cáo
+## 9. Báo cáo
 
 Báo cáo triển khai và ảnh minh chứng nằm trong `report/bao-cao-trien-khai.html`. Mở file bằng trình duyệt, thay các placeholder trường/khoa, họ tên, MSSV, lớp và giảng viên; sau đó in khổ A4 hoặc chọn Save as PDF. Báo cáo hiện có ảnh website, pgAdmin, Prometheus Targets và Grafana; cần bổ sung ảnh pgAdmin sau khi đặt master password và kết nối database.
 
-## 9. Commit theo rubric
+## 10. Commit theo rubric
 
 Tạo commit sau khi kiểm tra phần tương ứng; không commit `.env`, private key hoặc dữ liệu thật:
 
@@ -113,7 +121,7 @@ git commit -m "Add deployment report and evidence"
 
 Hardening được thể hiện trong commit Compose/Nginx liên quan; nếu thay đổi sau đó, tạo commit riêng mô tả đúng thay đổi. Không tạo commit rỗng chỉ để đủ số lượng.
 
-## 10. GitHub
+## 11. GitHub
 
 Tạo repository đặt tên theo mã số sinh viên theo yêu cầu giảng viên. Không tải `.env`, mật khẩu thật, hoặc file chứng chỉ private lên GitHub. Sau khi tạo repo:
 

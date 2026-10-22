@@ -6,6 +6,7 @@ services:
     environment:
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-contract_user}:${POSTGRES_PASSWORD:-ChangeMe_Strong_2026!}@db:5432/${POSTGRES_DB:-contracts}
+      SESSION_SECRET: ${SESSION_SECRET:-}
       NODE_ENV: production
     depends_on:
       db:
