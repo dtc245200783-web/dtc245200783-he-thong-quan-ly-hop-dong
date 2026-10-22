@@ -55,10 +55,12 @@ Grafana đăng nhập bằng `GRAFANA_USER` / `GRAFANA_PASSWORD`. Datasource Pro
 
 ## 5. Chức năng website
 
-- Tạo hợp đồng.
-- Xem danh sách hợp đồng và tìm kiếm.
-- Theo dõi trạng thái: Nháp, Đang hiệu lực, Hết hạn, Đã hủy.
-- Lưu bên liên quan, giá trị, ngày bắt đầu/kết thúc, ghi chú.
+- Dashboard tổng số, trạng thái, tổng giá trị, hợp đồng sắp hết hạn và danh sách cập nhật gần đây.
+- Tạo, xem chi tiết, chỉnh sửa và xóa hợp đồng; tìm theo mã/tên/bên liên quan.
+- Trạng thái: Nháp, Chờ phê duyệt, Đang hiệu lực, Hết hạn, Đã hủy; ngày kết thúc đã qua được tính là hết hạn.
+- Danh bạ bên liên quan gồm tên, email, điện thoại, địa chỉ; một hợp đồng có thể liên kết nhiều bên.
+- Lọc hợp đồng theo trạng thái, bên liên quan và khoảng ngày; nhắc hạn trong 30 ngày.
+- Báo cáo theo năm, tổng hợp theo trạng thái/tháng và xuất CSV.
 - Số liệu endpoint `/metrics` cho Prometheus; `/health` kiểm tra ứng dụng và DB.
 
 ## 6. Giám sát
