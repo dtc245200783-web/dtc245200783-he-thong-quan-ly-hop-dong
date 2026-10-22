@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Báo cáo triển khai hệ thống quản lý hợp đồng</title>
+  <style>
+    @page { size: A4; margin: 17mm 18mm 18mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #18232d; font: 11pt/1.48 "Times New Roman", serif; }
+    .page { position: relative; min-height: 260mm; padding-bottom: 14mm; break-after: page; page-break-after: always; }
+    .page:last-child { break-after: auto; page-break-after: auto; }
+    h1, h2, h3 { color: #173b56; line-height: 1.2; }
+    h1 { margin: 0 0 12px; font-size: 24pt; text-align: center; }
+    h2 { margin: 0 0 14px; padding-bottom: 6px; border-bottom: 1px solid #8da6b7; font-size: 17pt; }
+    h3 { margin: 15px 0 6px; font-size: 12.5pt; }
+    p { margin: 7px 0; text-align: justify; }
+    ul, ol { margin: 5px 0 9px; padding-left: 23px; }
+    li { margin: 3px 0; }
+    code, pre { font: 9pt/1.4 Consolas, monospace; }
+    pre { padding: 9px 11px; overflow-wrap: anywhere; white-space: pre-wrap; color: #172c39; background: #eef3f5; border-left: 3px solid #32708c; }
+    table { width: 100%; margin: 8px 0 12px; border-collapse: collapse; font-size: 9.5pt; }
+    th, td { padding: 6px 7px; border: 1px solid #9aaab4; text-align: left; vertical-align: top; }
+    th { color: #173b56; background: #e8eff3; }
+    figure { margin: 10px auto; text-align: center; }
+    figure img { max-width: 100%; max-height: 142mm; object-fit: contain; border: 1px solid #c2ccd2; }
+    figcaption { margin-top: 4px; color: #435663; font-size: 9pt; font-style: italic; }
+    .small { font-size: 9.5pt; }
+    .muted { color: #4d606c; }
+    .callout { padding: 9px 11px; border-left: 3px solid #c08a33; background: #fbf5e8; }
+    .footer { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; padding-top: 5px; border-top: 1px solid #b7c1c7; color: #53636c; font-size: 9pt; }
+    .cover { display: flex; min-height: 260mm; flex-direction: column; justify-content: space-between; text-align: center; }
+    .cover .institution { margin-top: 8mm; font-size: 14pt; font-weight: bold; line-height: 1.6; text-transform: uppercase; }
+    .cover .title { margin: 22mm 0; color: #173b56; font-size: 24pt; font-weight: bold; line-height: 1.45; text-transform: uppercase; }
+    .cover .details { width: 82%; margin: 0 auto; text-align: left; font-size: 13pt; line-height: 2; }
+    .cover .location { margin-bottom: 9mm; font-size: 12pt; }
+    .diagram { width: 100%; height: auto; border: 1px solid #c2ccd2; background: #f8fafb; }
+    .signature { display: flex; justify-content: space-around; margin-top: 24px; text-align: center; }
+    .signature div { width: 42%; }
+    @media screen { body { max-width: 210mm; margin: 20px auto; padding: 17mm 18mm 18mm; box-shadow: 0 2px 16px #0002; } .page { min-height: 260mm; } }
+    @media print { body { width: auto; margin: 0; padding: 0; } .page { min-height: 260mm; } }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div class="institution">TRƯỜNG [TÊN TRƯỜNG]<br>KHOA [TÊN KHOA]<br><br>BÁO CÁO MÔN HỌC<br>TRIỂN KHAI VÀ QUẢN TRỊ HỆ THỐNG PHẦN MỀM</div>
+    <div>
+      <div class="title">Xây dựng và triển khai<br>hệ thống quản lý hợp đồng<br>bằng Docker Compose</div>
+      <div class="details">
+        <div><strong>Sinh viên thực hiện:</strong> [HỌ VÀ TÊN]</div>
+        <div><strong>Mã số sinh viên:</strong> [MSSV]</div>
+        <div><strong>Lớp:</strong> [LỚP]</div>
+        <div><strong>Giảng viên hướng dẫn:</strong> [HỌ TÊN GIẢNG VIÊN]</div>
+      </div>
+    </div>
+    <div class="location">[TỈNH/THÀNH PHỐ] - 2026</div>
+  </section>
+
+  <section class="page">
+    <h2>Lời mở đầu và tóm tắt</h2>
+    <p>Báo cáo trình bày quá trình xây dựng một hệ thống quản lý hợp đồng có thể triển khai cục bộ bằng Docker Compose. Ứng dụng web viết bằng Node.js và Express, lưu dữ liệu trên PostgreSQL, cung cấp giao diện quản trị cơ sở dữ liệu pgAdmin, được đặt sau Nginx reverse proxy. Prometheus thu thập metrics, Grafana hiển thị dashboard, còn Loki và Promtail tập trung log container.</p>
+    <p>Mục tiêu thực hành là ghép các thành phần triển khai, giám sát, ghi log và hardening thành một hệ thống nhất quán; kiểm tra từng đường đi dữ liệu; đồng thời tạo hướng dẫn có thể lặp lại trên Docker Desktop.</p>
+    <table>
+      <tr><th>Hạng mục</th><th>Kết quả kiểm chứng</th></tr>
+      <tr><td>Website, reverse proxy, database</td><td>Website HTTP trả 200; endpoint /health kiểm tra kết nối DB và trả trạng thái thành công.</td></tr>
+      <tr><td>Prometheus</td><td>Targets của web, PostgreSQL exporter, cAdvisor và Prometheus đều ở trạng thái UP.</td></tr>
+      <tr><td>Grafana</td><td>Dashboard được provision, hiển thị health, request rate, bộ nhớ, PostgreSQL, CPU/container và log Loki.</td></tr>
+      <tr><td>Loki / LogQL</td><td>Ba truy vấn mẫu được gửi tới Loki, API trả success và có streams kết quả.</td></tr>
+      <tr><td>GitHub và thông tin bìa</td><td>Cần MSSV, thông tin học phần/trường và repository GitHub do sinh viên cung cấp hoặc tạo sau.</td></tr>
+    </table>
+    <p class="callout"><strong>Phạm vi số liệu:</strong> trạng thái trên được ghi nhận khi chạy trên máy phát triển ngày 22/10/2026. Đây là kiểm thử cục bộ, không thay thế kiểm thử tải hoặc đánh giá an ninh cho môi trường Internet.</p>
+    <div class="footer"><span>Báo cáo triển khai hệ thống quản lý hợp đồng</span><span>Trang 2</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Mục lục và yêu cầu</h2>
+    <ol>
+      <li>Lời mở đầu và tóm tắt</li>
+      <li>Mục tiêu, phạm vi và yêu cầu</li>
+      <li>Kiến trúc tổng thể</li>
+      <li>Luồng hoạt động và mô hình dữ liệu</li>
+      <li>Docker Compose và quy trình triển khai</li>
+      <li>Ứng dụng web, PostgreSQL và pgAdmin</li>
+      <li>Nginx reverse proxy và HTTPS</li>
+      <li>Prometheus và Grafana</li>
+      <li>Loki, Promtail và LogQL</li>
+      <li>Hardening, kiểm thử và kết luận</li>
+      <li>Phụ lục lệnh chạy, Git và demo</li>
+    </ol>
+    <h3>Yêu cầu đề tài</h3>
+    <p>Toàn bộ dịch vụ được điều phối bằng Docker Compose; mã nguồn và cấu hình cần được quản lý trên GitHub với README và lịch sử commit có ý nghĩa. Hệ thống cần có ứng dụng kết nối cơ sở dữ liệu, công cụ quản trị DB, Nginx reverse proxy, giám sát Prometheus/Grafana, logging Loki/Promtail và các biện pháp hardening.</p>
+    <h3>Phạm vi triển khai</h3>
+    <p>Hệ thống triển khai cục bộ trên Docker Desktop. PostgreSQL không mở cổng trực tiếp ra host; người dùng truy cập website qua Nginx tại cổng 8080/8443. Grafana, Prometheus và Loki có các cổng host riêng để phục vụ quản trị và demo. pgAdmin được reverse proxy dưới đường dẫn <code>/pgadmin/</code>.</p>
+    <h3>Tiêu chí nghiệm thu</h3>
+    <ul>
+      <li>Container khởi động, database healthy, ứng dụng kết nối được DB.</li>
+      <li>Trang web và pgAdmin truy cập qua Nginx; response có security headers.</li>
+      <li>Prometheus scrape thành công metrics ứng dụng, exporter PostgreSQL và cAdvisor.</li>
+      <li>Grafana có dashboard nhìn thấy dữ liệu; Loki nhận log và chạy truy vấn LogQL.</li>
+      <li>README mô tả cấu hình, lệnh chạy, địa chỉ và các lưu ý bảo mật.</li>
+    </ul>
+    <div class="footer"><span>Yêu cầu và phạm vi</span><span>Trang 3</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Kiến trúc tổng thể</h2>
+    <p>Ba network được dùng để phân vùng luồng giao tiếp. Nginx tiếp nhận truy cập từ host trên hai cổng web; web và pgAdmin giao tiếp với PostgreSQL qua backend network nội bộ. Monitoring network kết nối các exporter, Prometheus, Grafana, Loki và Promtail.</p>
+    <figure>
+      <svg class="diagram" viewBox="0 0 900 560" role="img" aria-label="Sơ đồ kiến trúc các dịch vụ Docker">
+        <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#42677e"/></marker></defs>
+        <rect x="20" y="20" width="860" height="520" rx="12" fill="#f8fafb" stroke="#91a8b6" stroke-width="2"/>
+        <text x="450" y="52" text-anchor="middle" font-size="22" font-family="Arial" font-weight="bold" fill="#173b56">Docker Compose - Contract Management</text>
+        <rect x="65" y="95" width="210" height="74" rx="8" fill="#d8e9f2" stroke="#42677e"/><text x="170" y="125" text-anchor="middle" font-size="16" font-family="Arial">Browser / Host</text><text x="170" y="150" text-anchor="middle" font-size="13" font-family="Arial">:8080 / :8443</text>
+        <rect x="345" y="95" width="210" height="74" rx="8" fill="#b9d8e7" stroke="#42677e"/><text x="450" y="125" text-anchor="middle" font-size="16" font-family="Arial">Nginx</text><text x="450" y="150" text-anchor="middle" font-size="13" font-family="Arial">TLS + proxy + headers</text>
+        <rect x="345" y="220" width="210" height="74" rx="8" fill="#dcebdc" stroke="#567b58"/><text x="450" y="250" text-anchor="middle" font-size="16" font-family="Arial">Node.js / Express</text><text x="450" y="275" text-anchor="middle" font-size="13" font-family="Arial">:3000 · /health · /metrics</text>
+        <rect x="345" y="350" width="210" height="74" rx="8" fill="#f3e6c9" stroke="#927643"/><text x="450" y="380" text-anchor="middle" font-size="16" font-family="Arial">PostgreSQL 16</text><text x="450" y="405" text-anchor="middle" font-size="13" font-family="Arial">Internal backend network</text>
+        <rect x="70" y="350" width="195" height="74" rx="8" fill="#eadcf0" stroke="#77598a"/><text x="168" y="380" text-anchor="middle" font-size="16" font-family="Arial">pgAdmin 4</text><text x="168" y="405" text-anchor="middle" font-size="13" font-family="Arial">Nginx /pgadmin/</text>
+        <rect x="625" y="205" width="205" height="84" rx="8" fill="#e2e9f4" stroke="#5f7195"/><text x="727" y="238" text-anchor="middle" font-size="16" font-family="Arial">Prometheus</text><text x="727" y="263" text-anchor="middle" font-size="13" font-family="Arial">web · postgres-exporter · cAdvisor</text>
+        <rect x="625" y="95" width="205" height="74" rx="8" fill="#f5e0cf" stroke="#a36d3e"/><text x="727" y="125" text-anchor="middle" font-size="16" font-family="Arial">Grafana</text><text x="727" y="150" text-anchor="middle" font-size="13" font-family="Arial">Dashboards · Explore</text>
+        <rect x="625" y="350" width="205" height="74" rx="8" fill="#e8dced" stroke="#77598a"/><text x="727" y="380" text-anchor="middle" font-size="16" font-family="Arial">Loki</text><text x="727" y="405" text-anchor="middle" font-size="13" font-family="Arial">Log storage / query API</text>
+        <rect x="70" y="460" width="195" height="56" rx="8" fill="#f1e3d2" stroke="#927643"/><text x="168" y="494" text-anchor="middle" font-size="15" font-family="Arial">Promtail + Docker logs</text>
+        <line x1="275" y1="132" x2="345" y2="132" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/><line x1="450" y1="169" x2="450" y2="220" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/><line x1="450" y1="294" x2="450" y2="350" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/><line x1="265" y1="387" x2="345" y2="387" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/>
+        <line x1="555" y1="257" x2="625" y2="257" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/><line x1="555" y1="387" x2="625" y2="257" stroke="#42677e" stroke-width="2" marker-end="url(#arrow)"/><line x1="727" y1="205" x2="727" y2="169" stroke="#42677e" stroke-width="3" marker-end="url(#arrow)"/><line x1="265" y1="488" x2="625" y2="387" stroke="#42677e" stroke-width="2" marker-end="url(#arrow)"/><line x1="727" y1="350" x2="727" y2="289" stroke="#42677e" stroke-width="2" marker-end="url(#arrow)"/>
+      </svg>
+      <figcaption>Hình 1. Các thành phần và luồng dữ liệu chính của hệ thống.</figcaption>
+    </figure>
+    <p class="small">Mạng <code>backend</code> được khai báo <code>internal: true</code>. Database không có <code>ports</code> publish ra host. Nginx kết nối frontend để proxy web/pgAdmin và monitoring để phục vụ log discovery theo cấu hình hiện tại.</p>
+    <div class="footer"><span>Kiến trúc tổng thể</span><span>Trang 4</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Luồng hoạt động và mô hình dữ liệu</h2>
+    <h3>Luồng request</h3>
+    <ol>
+      <li>Trình duyệt gửi HTTP tới host port 8080 hoặc HTTPS tới 8443.</li>
+      <li>Nginx áp dụng security headers, định tuyến <code>/</code> đến <code>web:3000</code> và <code>/pgadmin/</code> đến dịch vụ pgAdmin.</li>
+      <li>Express xử lý biểu mẫu, kiểm tra các trường bắt buộc/trạng thái và dùng PostgreSQL parameterized queries.</li>
+      <li>PostgreSQL lưu bảng <code>contracts</code>; ứng dụng trả trang danh sách hoặc thông báo phù hợp.</li>
+    </ol>
+    <h3>Luồng giám sát và log</h3>
+    <p>Prometheus scrape metrics mỗi 15 giây từ web, cAdvisor, postgres-exporter và chính Prometheus. Ứng dụng dùng prom-client để xuất default process metrics và counter HTTP. Promtail khám phá container qua Docker socket, đọc log container và gửi tới Loki. Grafana đọc hai datasource được provision để hiển thị time series và log.</p>
+    <h3>Bảng dữ liệu hợp đồng</h3>
+    <table>
+      <tr><th>Cột</th><th>Kiểu / ràng buộc</th><th>Ý nghĩa</th></tr>
+      <tr><td>id</td><td>SERIAL PRIMARY KEY</td><td>Khóa định danh nội bộ.</td></tr>
+      <tr><td>contract_code</td><td>VARCHAR(40), UNIQUE, NOT NULL</td><td>Mã hợp đồng duy nhất.</td></tr>
+      <tr><td>title, related_party</td><td>VARCHAR(200), NOT NULL</td><td>Tên hợp đồng và bên liên quan.</td></tr>
+      <tr><td>status</td><td>VARCHAR(30), mặc định “Nháp”</td><td>Nháp, Đang hiệu lực, Hết hạn, Đã hủy.</td></tr>
+      <tr><td>contract_value</td><td>NUMERIC(14,2)</td><td>Giá trị tiền tệ.</td></tr>
+      <tr><td>start_date, end_date</td><td>DATE</td><td>Khoảng thời gian hiệu lực.</td></tr>
+      <tr><td>notes, created_at</td><td>TEXT, TIMESTAMPTZ</td><td>Ghi chú và thời điểm tạo.</td></tr>
+    </table>
+    <p class="callout">Bảng được khởi tạo bởi <code>initDb()</code> khi ứng dụng khởi động. Mỗi hợp đồng có mã duy nhất; form web có thể tạo, tìm kiếm và thay đổi trạng thái.</p>
+    <div class="footer"><span>Luồng hoạt động và dữ liệu</span><span>Trang 5</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Docker Compose và quy trình triển khai</h2>
+    <p>Compose mô tả các dịch vụ web, db, pgadmin, nginx, prometheus, grafana, loki, promtail, cAdvisor và postgres-exporter. Các dịch vụ dùng volume named cho dữ liệu PostgreSQL, pgAdmin, Prometheus, Grafana và Loki; cấu hình Nginx, Prometheus, Loki, Promtail và Grafana được bind mount chỉ đọc khi phù hợp.</p>
+    <h3>Khởi chạy trên Windows PowerShell</h3>
+    <pre>Copy-Item .env.example .env
+# Sửa tất cả mật khẩu trong .env thành giá trị riêng, đủ mạnh.
+New-Item -ItemType Directory -Force nginx/certs
+docker run --rm -v "${PWD}/nginx/certs:/certs" alpine/openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /certs/self-signed.key -out /certs/self-signed.crt -subj "/CN=localhost"
+docker compose --env-file .env up -d --build
+docker compose ps</pre>
+    <p>Đợi database healthcheck chuyển sang healthy trước khi ứng dụng khởi động. Lần đầu Docker cần tải image và build backend; thời gian phụ thuộc kết nối mạng. Xem log bằng <code>docker compose logs -f web</code>.</p>
+    <h3>Kiểm tra và dừng</h3>
+    <pre>docker compose ps
+docker compose logs --tail 100 web db nginx prometheus grafana loki promtail
+docker compose down</pre>
+    <p>Không dùng <code>docker compose down -v</code> nếu cần giữ dữ liệu volume. Lệnh đó xóa cả database và dữ liệu giám sát. Thông tin tài khoản do các biến môi trường trong file <code>.env</code> quyết định.</p>
+    <h3>Địa chỉ dịch vụ</h3>
+    <table><tr><th>Dịch vụ</th><th>Địa chỉ local</th></tr><tr><td>Website</td><td>http://localhost:8080</td></tr><tr><td>HTTPS tự ký</td><td>https://localhost:8443</td></tr><tr><td>pgAdmin</td><td>http://localhost:8080/pgadmin/</td></tr><tr><td>Prometheus</td><td>http://localhost:9090</td></tr><tr><td>Grafana</td><td>http://localhost:3001</td></tr><tr><td>Loki ready</td><td>http://localhost:3100/ready</td></tr></table>
+    <div class="footer"><span>Điều phối và vận hành</span><span>Trang 6</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Ứng dụng web, PostgreSQL và pgAdmin</h2>
+    <p>Ứng dụng cung cấp form tạo hợp đồng, bảng danh sách, tìm kiếm theo mã/tên/bên liên quan và thao tác cập nhật trạng thái. Trường mã, tên và bên liên quan là bắt buộc; trạng thái được giới hạn trong danh sách cho phép. Truy vấn ghi và tìm kiếm dùng parameterized query để tránh ghép trực tiếp dữ liệu người dùng vào SQL.</p>
+    <p>Endpoint <code>/health</code> thực hiện <code>SELECT 1</code> trên PostgreSQL và trả JSON trạng thái. Endpoint <code>/metrics</code> cung cấp định dạng Prometheus. Container backend chạy Node.js với user không phải root.</p>
+    <figure><img src="evidence/web-app.png" alt="Giao diện hệ thống quản lý hợp đồng"><figcaption>Hình 2. Website quản lý hợp đồng đang chạy qua Nginx tại localhost:8080.</figcaption></figure>
+    <figure><img src="evidence/pgadmin.png" alt="Giao diện pgAdmin"><figcaption>Hình 3. pgAdmin được phục vụ dưới đường dẫn /pgadmin/. Ở lần chạy đầu, cần đặt master password trong pgAdmin trước khi sử dụng.</figcaption></figure>
+    <p class="small">Để kết nối database từ pgAdmin, thêm server với Host <code>db</code>, Port <code>5432</code>, Maintenance database theo <code>POSTGRES_DB</code>, username/password theo <code>POSTGRES_USER</code> và <code>POSTGRES_PASSWORD</code>. Tài khoản dùng đăng nhập pgAdmin riêng với tài khoản kết nối database.</p>
+    <div class="footer"><span>Ứng dụng và quản trị database</span><span>Trang 7</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Nginx reverse proxy và HTTPS</h2>
+    <p>Nginx nhận request trên cổng 80 và 443. Route mặc định chuyển tới Express qua tên dịch vụ Compose <code>web:3000</code>; route <code>/pgadmin/</code> chuyển tới pgAdmin và đặt các header cần thiết cho ứng dụng chạy dưới subpath. Nginx chuyển tiếp host và địa chỉ client cho backend.</p>
+    <h3>HTTPS local</h3>
+    <p>Chứng chỉ tự ký được tạo trong thư mục <code>nginx/certs</code> với CN=localhost và mount read-only vào container. HTTPS dùng TLS 1.2/1.3. Trình duyệt sẽ cảnh báo vì chứng chỉ không được CA công cộng ký; chứng chỉ này chỉ phù hợp môi trường học tập/local.</p>
+    <h3>Security headers đã kiểm tra</h3>
+    <table><tr><th>Header</th><th>Giá trị / mục đích</th></tr><tr><td>X-Content-Type-Options</td><td>nosniff, hạn chế MIME sniffing.</td></tr><tr><td>X-Frame-Options</td><td>DENY, hạn chế nhúng trang vào frame.</td></tr><tr><td>Referrer-Policy</td><td>strict-origin-when-cross-origin.</td></tr><tr><td>Permissions-Policy</td><td>Tắt camera, microphone và geolocation.</td></tr><tr><td>Content-Security-Policy</td><td>Giới hạn nguồn mặc định; cho phép font và ảnh data URI cần cho giao diện pgAdmin.</td></tr></table>
+    <p>Kiểm tra ngày 22/10/2026 cho thấy trang gốc trả HTTP 200. Các header bảo mật nêu trên có trong response. CSP được điều chỉnh với <code>font-src 'self' data:</code> để font nhúng của pgAdmin hoạt động, đồng thời vẫn giữ các nguồn mặc định giới hạn.</p>
+    <p class="callout">Nginx đang thêm <code>Strict-Transport-Security</code> trên virtual host HTTPS. Không bật HSTS trên production nếu TLS, domain và quy trình chứng chỉ chưa được thiết kế đúng.</p>
+    <div class="footer"><span>Nginx, TLS và headers</span><span>Trang 8</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Prometheus và Grafana</h2>
+    <p>Prometheus dùng chu kỳ scrape 15 giây. Các job được cấu hình gồm Prometheus, contract-web tại <code>/metrics</code>, cAdvisor và postgres-exporter. PostgreSQL được giám sát qua exporter; không publish cổng 5432 ra host.</p>
+    <figure><img src="evidence/prometheus-targets.png" alt="Prometheus targets"><figcaption>Hình 4. Giao diện Prometheus Targets: các job ứng dụng, PostgreSQL exporter, cAdvisor và Prometheus đang UP.</figcaption></figure>
+    <p>Grafana tự động provision datasource Prometheus và Loki. Dashboard “Contract System Overview” gồm trạng thái scrape, request rate theo method/status, bộ nhớ tiến trình web, trạng thái PostgreSQL exporter, CPU và working-set memory container, cùng log ứng dụng lấy từ Loki.</p>
+    <figure><img src="evidence/grafana-dashboard.png" alt="Grafana dashboard"><figcaption>Hình 5. Dashboard Grafana provisioned với metrics của web, PostgreSQL, container và log ứng dụng.</figcaption></figure>
+    <p class="small">Kết quả kiểm tra từ API Prometheus ghi nhận target <code>cadvisor</code>, <code>contract-web</code>, <code>postgres</code> và <code>prometheus</code> đều có health=up và không có lastError. Dashboard được tải qua API Grafana với UID <code>contract-system-overview</code>.</p>
+    <div class="footer"><span>Metrics và dashboard</span><span>Trang 9</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Loki, Promtail và LogQL</h2>
+    <p>Promtail khám phá Docker container qua Docker socket read-only, gắn label tên container và log stream, sau đó gửi log tới Loki qua endpoint push nội bộ. Grafana dùng datasource Loki cho Explore và panel log ứng dụng. Loki API sẵn sàng trên cổng 3100.</p>
+    <h3>Truy vấn mẫu</h3>
+    <p><strong>1. Toàn bộ log ứng dụng web:</strong></p>
+    <pre>{container="contract-web"}</pre>
+    <p><strong>2. Log phản hồi lỗi của Nginx:</strong></p>
+    <pre>{container="contract-nginx"} |= " 5"</pre>
+    <p><strong>3. Tìm lỗi trong web và Nginx:</strong></p>
+    <pre>{container=~"contract-web|contract-nginx"} |~ "(?i)error|exception|failed"</pre>
+    <h3>Kết quả kiểm tra</h3>
+    <p>Ba selector trên được gửi tới Loki API <code>/loki/api/v1/query_range</code>. Cả ba trả trạng thái <code>success</code>; lần kiểm tra thu được lần lượt 2, 1 và 1 streams. Query đầu tiên phù hợp để kiểm tra log web; truy vấn thứ hai lọc status code 5xx trong log Nginx; truy vấn cuối tìm các từ khóa lỗi không phân biệt hoa thường.</p>
+    <p>Label thực tế phụ thuộc metadata Docker và pipeline Promtail; khi môi trường khác, mở Explore, chọn datasource Loki và kiểm tra label trước khi dùng selector. Dashboard có panel “Recent application logs” dùng selector web.</p>
+    <p class="callout">Log ứng dụng là dữ liệu vận hành. Không ghi password, token, dữ liệu cá nhân hoặc nội dung hợp đồng nhạy cảm vào log. Cần cấu hình retention và dung lượng lưu trữ phù hợp nếu mở rộng.</p>
+    <div class="footer"><span>Tập trung log và truy vấn</span><span>Trang 10</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Hardening, kiểm thử và giới hạn</h2>
+    <h3>Biện pháp hiện có</h3>
+    <ul>
+      <li>Image ứng dụng chạy bằng user <code>node</code>, không phải root.</li>
+      <li>Container web dùng read-only filesystem, <code>tmpfs: /tmp</code>, <code>cap_drop: ALL</code>, <code>no-new-privileges</code>.</li>
+      <li>Backend network đặt <code>internal: true</code>; database không publish port.</li>
+      <li>Nginx áp dụng security headers và TLS tự ký cho môi trường local.</li>
+      <li>Không commit <code>.env</code> và private key theo <code>.gitignore</code>; giá trị mật khẩu được truyền qua environment.</li>
+      <li>Tắt đăng ký tài khoản Grafana; pgAdmin và Grafana có thể thay credentials bằng biến môi trường.</li>
+    </ul>
+    <h3>Rủi ro còn lại</h3>
+    <p>Mẫu <code>.env.example</code> chứa mật khẩu demo và bắt buộc phải đổi trước khi chia sẻ hoặc triển khai. Cấu hình Promtail mount Docker socket read-only nhưng vẫn có quyền quan sát metadata Docker; cAdvisor dùng <code>privileged: true</code> để đọc số liệu host và là ngoại lệ quyền cao. Những cấu hình này chỉ nên chạy local/lab và cần rà soát trước production.</p>
+    <p>Nginx hiện gửi <code>X-Powered-By: Express</code> từ ứng dụng; có thể tắt header này để giảm lộ thông tin stack. CSP có <code>unsafe-inline</code> nhằm tương thích ứng dụng hiện tại và chưa phải CSP nghiêm ngặt. Cần rà soát các điểm này nếu triển khai Internet-facing.</p>
+    <h3>Kết quả kiểm thử thực tế</h3>
+    <table><tr><th>Kiểm tra</th><th>Kết quả</th></tr><tr><td>Docker Compose build/up</td><td>Hoàn tất; các container được tạo và chạy.</td></tr><tr><td>PostgreSQL</td><td>Container healthy.</td></tr><tr><td>HTTP /health</td><td>HTTP 200.</td></tr><tr><td>Nginx website + headers</td><td>HTTP 200, headers kỳ vọng hiện diện.</td></tr><tr><td>Prometheus targets</td><td>4 jobs đang UP.</td></tr><tr><td>Grafana dashboard</td><td>API trả dashboard đúng UID.</td></tr><tr><td>Loki LogQL</td><td>3 truy vấn success, có streams.</td></tr><tr><td>pgAdmin</td><td>Giao diện tải được; cần hoàn tất master password và đăng ký DB.</td></tr></table>
+    <div class="footer"><span>Hardening và nghiệm thu</span><span>Trang 11</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Kết luận và kế hoạch hoàn thiện</h2>
+    <p>Đề tài đã tích hợp ứng dụng quản lý hợp đồng với PostgreSQL, pgAdmin, Nginx, Prometheus, Grafana, Loki và Promtail bằng Docker Compose. Kết quả kiểm thử local xác nhận đường đi web/DB, metrics, dashboard và LogQL hoạt động. Dashboard được provision tự động để giảm thao tác cấu hình thủ công khi khởi chạy.</p>
+    <h3>Việc sinh viên cần hoàn tất trước khi nộp</h3>
+    <ol>
+      <li>Điền tên trường, khoa, họ tên, MSSV, lớp và giảng viên trên bìa.</li>
+      <li>Tạo file <code>.env</code> từ <code>.env.example</code>; đặt mật khẩu riêng đủ mạnh, không dùng mật khẩu mẫu.</li>
+      <li>Đặt master password cho pgAdmin, thêm server <code>db</code>, và chụp ảnh màn hình đã kết nối tới database/bảng <code>contracts</code>.</li>
+      <li>Tạo GitHub repository theo quy định MSSV, push mã nguồn; cập nhật URL repository và chụp trang commit.</li>
+      <li>Thay các ảnh minh chứng bằng ảnh demo cuối cùng nếu giao diện đã thay đổi; in báo cáo ra PDF và xác nhận đủ trang.</li>
+    </ol>
+    <div class="signature"><div>GIẢNG VIÊN HƯỚNG DẪN<br><br><br>(Ký và ghi rõ họ tên)</div><div>SINH VIÊN THỰC HIỆN<br><br><br>(Ký và ghi rõ họ tên)</div></div>
+    <div class="footer"><span>Kết luận</span><span>Trang 12</span></div>
+  </section>
+
+  <section class="page">
+    <h2>Phụ lục: Git, demo và nguồn tham khảo</h2>
+    <h3>Gợi ý chia commit</h3>
+    <p>Trong thư mục project, khởi tạo Git và tạo các commit theo thay đổi thực tế. Không đưa mật khẩu .env, private key hoặc dữ liệu thật vào repository.</p>
+    <pre>git init
+git add app nginx docker-compose.yml .env.example README.md
+git commit -m "Deploy contract web with PostgreSQL and Nginx"
+git add prometheus grafana
+git commit -m "Add Prometheus monitoring and Grafana dashboard"
+git add loki promtail
+git commit -m "Add centralized logging with Loki and Promtail"
+git remote add origin https://github.com/&lt;account&gt;/&lt;repository&gt;.git
+git push -u origin main</pre>
+    <p>Với project hiện tại, cần kiểm tra Git status trước khi stage và không tạo commit rỗng. Nếu cần đưa báo cáo vào Git, thực hiện commit tài liệu riêng để lịch sử vẫn phản ánh đúng nội dung.</p>
+    <h3>Kịch bản demo ngắn</h3>
+    <ol><li>Mở website, tạo hợp đồng thử, tìm kiếm và đổi trạng thái.</li><li>Mở pgAdmin, kết nối <code>db</code>, truy vấn bảng hợp đồng.</li><li>Mở Prometheus Targets và xác nhận các job UP.</li><li>Mở Grafana dashboard, kiểm tra request/DB/container; mở Explore và chạy ba LogQL mẫu.</li><li>Trình bày các network, user non-root, read-only filesystem, headers và việc không publish PostgreSQL.</li></ol>
+    <h3>Nguồn tham khảo trong project</h3>
+    <ul><li>README.md - hướng dẫn cài đặt, địa chỉ truy cập và LogQL.</li><li>docker-compose.yml - service, network, volume và hardening.</li><li>app/server.js - route, schema database, health và metrics.</li><li>nginx/default.conf - reverse proxy, TLS và response headers.</li><li>prometheus/prometheus.yml, grafana/provisioning, loki/loki-config.yaml, promtail/promtail-config.yml - cấu hình observability.</li></ul>
+    <p class="small muted">Báo cáo cần được cập nhật tên/MSSV, URL GitHub và ảnh kết quả demo trước khi nộp chính thức.</p>
+    <div class="footer"><span>Phụ lục</span><span>Trang 13</span></div>
+  </section>
+</body>
+</html>
