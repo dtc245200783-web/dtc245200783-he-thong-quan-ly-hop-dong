@@ -97,43 +97,66 @@ Tên label có thể khác theo phiên bản Docker/Promtail và môi trường;
 - Không commit `.env` hoặc private key lên GitHub.
 - **Lưu ý:** cAdvisor cần quyền truy cập host để thu thập metrics nên là ngoại lệ quyền cao; chỉ dùng trong môi trường học tập/local. Với môi trường thực tế, cần rà soát lại quyền và phiên bản image.
 
-## 9. Báo cáo
+## 9. Kịch bản demo và minh chứng
+
+### Chuẩn bị
+
+```powershell
+docker compose ps
+docker compose logs --tail 50 web db nginx prometheus grafana loki promtail
+```
+
+Đảm bảo `db` healthy và các service đang chạy trước khi trình bày. Website lần đầu sẽ mở `/setup`; tự tạo admin với mật khẩu tối thiểu 12 ký tự. Đăng nhập xong, tạo một bên liên quan và một hợp đồng thử để dashboard, biểu đồ và log có dữ liệu.
+
+### Website và PostgreSQL/pgAdmin
+
+1. Mở `http://localhost:8080`, đăng nhập, tạo bên liên quan gồm email/điện thoại/địa chỉ.
+2. Tạo hợp đồng; mở chi tiết, sửa trạng thái/ngày, thử lọc theo trạng thái và bên liên quan; xem dashboard cảnh báo sắp hạn/quá hạn.
+3. Mở `http://localhost:8080/pgadmin/`. Lần đầu pgAdmin yêu cầu tạo master password riêng; vào **Servers → Register → Server** để kết nối:
+	- Name: `Contract DB`
+	- Host: `db`; Port: `5432`
+	- Maintenance database: giá trị `POSTGRES_DB` (mặc định `contracts`)
+	- Username: `POSTGRES_USER`; Password: `POSTGRES_PASSWORD`
+4. Trong pgAdmin mở `Databases → contracts → Schemas → public → Tables`, kiểm tra `contracts`, `counterparties`, `contract_parties`, `app_users` và `app_sessions`. Không publish cổng PostgreSQL ra host; pgAdmin kết nối qua Docker network.
+
+### Prometheus và Grafana
+
+1. Mở `http://localhost:9090/targets`; xác nhận `contract-web`, `postgres`, `cadvisor`, `prometheus` là `UP`. Có thể thử query `up`, `pg_up`, `contract_http_requests_total`.
+2. Mở `http://localhost:3001`, đăng nhập bằng `GRAFANA_USER`/`GRAFANA_PASSWORD` trong `.env`; mở **Dashboards → Contract Management → Contract System Overview**.
+3. Mở **Explore → Loki**, chạy các query ở mục LogQL bên dưới. Tạo request ở website rồi chạy lại query để có log mới.
+
+### Hardening
+
+Chạy các lệnh sau để minh chứng cấu hình trên container đang chạy:
+
+```powershell
+docker inspect contract-web --format "user={{.Config.User}} readonly={{.HostConfig.ReadonlyRootfs}} capDrop={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}}"
+docker compose ps db
+docker network ls
+git check-ignore .env nginx/certs/self-signed.key
+```
+
+Kết quả mong đợi: user ứng dụng là `node`, `readonly=true`, `capDrop` có `ALL`, security có `no-new-privileges:true`; service DB không có port host; `.env` và private key bị ignore. cAdvisor là ngoại lệ dùng quyền cao để đọc metrics host, chỉ nên trình bày trong môi trường lab/local.
+
+### Thứ tự trình bày
+
+Website tạo/sửa hợp đồng → pgAdmin kiểm tra bảng → Prometheus targets → Grafana dashboard → Explore với LogQL → `docker inspect`/network chứng minh hardening. Ảnh minh chứng và báo cáo nằm trong `report/`.
+
+## 10. Báo cáo
 
 Báo cáo triển khai và ảnh minh chứng nằm trong `report/bao-cao-trien-khai.html`. Mở file bằng trình duyệt, thay các placeholder trường/khoa, họ tên, MSSV, lớp và giảng viên; sau đó in khổ A4 hoặc chọn Save as PDF. Báo cáo hiện có ảnh website, pgAdmin, Prometheus Targets và Grafana; cần bổ sung ảnh pgAdmin sau khi đặt master password và kết nối database.
 
-## 10. Commit theo rubric
+## 11. Commit theo rubric
 
-Tạo commit sau khi kiểm tra phần tương ứng; không commit `.env`, private key hoặc dữ liệu thật:
+Repository Git đã được khởi tạo ở nhánh `main`, có các commit riêng cho web/Nginx, monitoring, logging, báo cáo và các sửa lỗi. Khi bổ sung chức năng, tạo commit mô tả đúng thay đổi; không commit `.env`, private key hoặc dữ liệu thật.
 
-```bash
-git init
-git branch -M main
-git add app nginx docker-compose.yml .env.example README.md
-git commit -m "Deploy contract web with PostgreSQL and Nginx"
+## 12. GitHub
 
-git add prometheus grafana
-git commit -m "Add Prometheus monitoring and Grafana dashboard"
+Tạo repository GitHub dưới tài khoản của bạn (đặt tên theo MSSV nếu giảng viên yêu cầu). Hiện local repository chưa có remote vì chưa có URL repository. Sau khi tạo repo trống, chạy ở thư mục project:
 
-git add loki promtail
-git commit -m "Add centralized logging with Loki and Promtail"
-
-git add report
-git commit -m "Add deployment report and evidence"
-```
-
-Hardening được thể hiện trong commit Compose/Nginx liên quan; nếu thay đổi sau đó, tạo commit riêng mô tả đúng thay đổi. Không tạo commit rỗng chỉ để đủ số lượng.
-
-## 11. GitHub
-
-Tạo repository đặt tên theo mã số sinh viên theo yêu cầu giảng viên. Không tải `.env`, mật khẩu thật, hoặc file chứng chỉ private lên GitHub. Sau khi tạo repo:
-
-```bash
-git init
-git branch -M main
-git add .
-git commit -m "Initial project scaffold"
+```powershell
 git remote add origin https://github.com/<username>/<repository>.git
 git push -u origin main
 ```
 
-Thay URL bằng repository thật của bạn.
+Nếu đã khai báo remote, kiểm tra bằng `git remote -v` và dùng `git remote set-url origin <URL>` để sửa. Không tải `.env`, mật khẩu thật hoặc private key lên GitHub.
