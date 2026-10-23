@@ -11,8 +11,8 @@ Dự án môn **Triển khai và Quản trị Hệ thống Phần mềm**. Stack
 ## 2. Chạy lần đầu
 
 1. Giải nén dự án.
-2. Đổi tên `.env.example` thành `.env`.
-3. Mở `.env`, đổi tất cả mật khẩu mẫu thành mật khẩu mạnh riêng của bạn.
+2. Sao chép `.env.example` thành `.env`.
+3. Điền `POSTGRES_PASSWORD`, `PGADMIN_PASSWORD`, `GRAFANA_PASSWORD` và `SESSION_SECRET` bằng secret ngẫu nhiên mạnh. Nên dùng chuỗi hex ngẫu nhiên từ password manager hoặc ít nhất 32 byte cho mật khẩu, 48 byte cho session secret. Không dùng lại cùng một secret.
 4. Tạo chứng chỉ HTTPS tự ký (PowerShell, chạy tại thư mục gốc):
 
 ```powershell
@@ -34,7 +34,7 @@ Lần đầu có thể mất vài phút để tải image. Xem log: `docker comp
 - Lần truy cập đầu tiên vào website sẽ chuyển tới trang `/setup`. Tạo tài khoản quản trị của bạn; không có tài khoản/mật khẩu mặc định.
 - Tên đăng nhập có thể dùng chữ hoa/thường, dấu cách và ký tự Unicode; tối đa 255 ký tự. Mật khẩu tối thiểu 12 ký tự và được lưu dạng bcrypt hash trong PostgreSQL.
 - Các lần sau đăng nhập tại `/login`; đăng xuất bằng nút trên header. Session hết hạn sau 8 giờ và lưu trong PostgreSQL.
-- Đặt `SESSION_SECRET` trong `.env` thành chuỗi ngẫu nhiên dài ít nhất 64 ký tự để session tiếp tục hợp lệ sau khi container khởi động lại. Không commit `.env`.
+- `SESSION_SECRET` trong `.env` phải là chuỗi ngẫu nhiên mạnh (ít nhất 64 ký tự hex) để session tiếp tục hợp lệ sau khi container khởi động lại. Không commit `.env`.
 
 ## 4. Địa chỉ truy cập
 
@@ -152,11 +152,11 @@ Repository Git đã được khởi tạo ở nhánh `main`, có các commit ri�
 
 ## 12. GitHub
 
-Tạo repository GitHub dưới tài khoản của bạn (đặt tên theo MSSV nếu giảng viên yêu cầu). Hiện local repository chưa có remote vì chưa có URL repository. Sau khi tạo repo trống, chạy ở thư mục project:
+Repository đã được tạo và push tại `https://github.com/dtc245200783-web/dtc245200783-he-thong-quan-ly-hop-dong`; nhánh `main` theo dõi `origin/main`. Kiểm tra remote bằng:
 
 ```powershell
-git remote add origin https://github.com/<username>/<repository>.git
-git push -u origin main
+git remote -v
+git status --short --branch
 ```
 
-Nếu đã khai báo remote, kiểm tra bằng `git remote -v` và dùng `git remote set-url origin <URL>` để sửa. Không tải `.env`, mật khẩu thật hoặc private key lên GitHub.
+Đẩy commit mới bằng `git add <files>`, `git commit -m "Describe the change"`, rồi `git push`. Không tải `.env`, mật khẩu thật hoặc private key lên GitHub.
