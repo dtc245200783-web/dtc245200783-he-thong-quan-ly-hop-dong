@@ -32,7 +32,7 @@ Lần đầu có thể mất vài phút để tải image. Xem log: `docker comp
 ## 3. Đăng nhập ứng dụng
 
 - Lần truy cập đầu tiên vào website sẽ chuyển tới trang `/setup` để tạo quản trị viên đầu tiên; không có tài khoản/mật khẩu mặc định.
-- Quản trị viên đăng nhập tại `/admin/login`; người dùng nghiệp vụ đăng nhập tại `/login`. Admin tạo/khóa tài khoản user trong mục **Người dùng**. User chỉ thấy các mục nghiệp vụ; truy cập `/users` bị từ chối.
+- Quản trị viên đăng nhập tại `/admin/login`; người dùng nghiệp vụ đăng nhập tại `/login` hoặc tự đăng ký tại `/register`. Đăng ký công khai luôn tạo role `user`, không thể tự đăng ký admin. Admin vẫn có thể tạo/khóa user trong mục **Người dùng**. User chỉ thấy các mục nghiệp vụ; truy cập `/users` bị từ chối.
 - Tên đăng nhập có thể dùng chữ hoa/thường, dấu cách và ký tự Unicode; tối đa 255 ký tự. Mật khẩu tối thiểu 12 ký tự và được lưu dạng bcrypt hash trong PostgreSQL.
 - Các lần sau đăng nhập tại `/login`; đăng xuất bằng nút trên header. Session hết hạn sau 8 giờ và lưu trong PostgreSQL.
 - `SESSION_SECRET` trong `.env` phải là chuỗi ngẫu nhiên mạnh (ít nhất 64 ký tự hex) để session tiếp tục hợp lệ sau khi container khởi động lại. Không commit `.env`.

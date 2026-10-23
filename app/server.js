@@ -47,7 +47,7 @@ app.use(session({
   },
 }));
 app.use(async (req, res, next) => {
-  if (['/login', '/admin/login', '/setup', '/health', '/metrics'].includes(req.path)) return next();
+  if (['/login', '/admin/login', '/register', '/setup', '/health', '/metrics'].includes(req.path)) return next();
   if (!req.session.userId) return res.redirect(req.path.startsWith('/admin') ? '/admin/login' : '/login');
   try {
     const result = await pool.query('SELECT username, role FROM app_users WHERE id=$1 AND is_active=TRUE', [req.session.userId]);
@@ -216,7 +216,9 @@ function loginPage(error = '', role = 'user') {
   const isAdmin = role === 'admin';
   const message = error ? '<div class="auth-error">Tên đăng nhập hoặc mật khẩu không đúng.</div>' : '';
   const title = isAdmin ? 'Đăng nhập quản trị viên' : 'Đăng nhập người dùng';
-  const switchLink = isAdmin ? '<a href="/login">Đăng nhập với tài khoản người dùng</a>' : '<a href="/admin/login">Đăng nhập quản trị viên</a>';
+  const switchLink = isAdmin
+    ? '<a href="/login">Đăng nhập người dùng</a>'
+    : '<a href="/admin/login">Đăng nhập quản trị viên</a> · <a href="/register">Đăng ký tài khoản</a>';
   const action = isAdmin ? '/admin/login' : '/login';
   return page(`<section class="card auth-card"><h2>${title}</h2>
     <p class="auth-intro">Đăng nhập để tiếp tục quản lý hợp đồng.</p>${message}
@@ -225,6 +227,18 @@ function loginPage(error = '', role = 'user') {
       <div class="auth-field"><label for="login-password">Mật khẩu</label><input id="login-password" name="password" type="password" required autocomplete="current-password"></div>
       <button class="auth-submit" type="submit">Đăng nhập</button>
     </form><p class="auth-intro">${switchLink}</p></section>`);
+}
+
+function registerPage(error = '') {
+  const message = error ? `<div class="auth-error">${esc(error)}</div>` : '';
+  return page(`<section class="card auth-card"><h2>Đăng ký tài khoản người dùng</h2>
+    <p class="auth-intro">Tài khoản đăng ký chỉ có quyền sử dụng các chức năng nghiệp vụ.</p>${message}
+    <form method="post" action="/register">
+      <div class="auth-field"><label for="register-username">Tên đăng nhập</label><input id="register-username" name="username" required maxlength="255" autocomplete="username"></div>
+      <div class="auth-field"><label for="register-password">Mật khẩu</label><input id="register-password" name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+      <div class="auth-field"><label for="register-confirm">Nhập lại mật khẩu</label><input id="register-confirm" name="confirm_password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+      <button class="auth-submit" type="submit">Đăng ký</button>
+    </form><p class="auth-intro"><a href="/login">Đã có tài khoản? Đăng nhập</a></p></section>`);
 }
 
 function regenerateSession(req) {
@@ -462,6 +476,35 @@ async function authenticateUser(req, res, requiredRole) {
 
 app.post('/login', (req, res) => authenticateUser(req, res, 'user'));
 app.post('/admin/login', (req, res) => authenticateUser(req, res, 'admin'));
+
+app.get('/register', async (_req, res) => {
+  if (!(await hasUsers())) return res.redirect('/setup');
+  res.send(registerPage());
+});
+
+app.post('/register', async (req, res) => {
+  if (!(await hasUsers())) return res.redirect(303, '/setup');
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  const confirmPassword = String(req.body.confirm_password || '');
+  if (!username || Array.from(username).length > 255) return res.status(400).send(registerPage('Tên đăng nhập là bắt buộc và tối đa 255 ký tự.'));
+  if (Buffer.byteLength(password, 'utf8') < 12 || Buffer.byteLength(password, 'utf8') > 72) return res.status(400).send(registerPage('Mật khẩu phải dài từ 12 đến 72 byte.'));
+  if (password !== confirmPassword) return res.status(400).send(registerPage('Hai mật khẩu không khớp.'));
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const result = await pool.query("INSERT INTO app_users(username,password_hash,role) VALUES($1,$2,'user') RETURNING id,username,role", [username, passwordHash]);
+    userRoleCache.set(username, 'user');
+    await regenerateSession(req);
+    req.session.userId = result.rows[0].id;
+    req.session.username = result.rows[0].username;
+    req.session.role = result.rows[0].role;
+    await saveSession(req);
+    res.redirect(303, '/');
+  } catch (error) {
+    const message = error.code === '23505' ? 'Tên đăng nhập đã tồn tại.' : 'Không thể đăng ký tài khoản.';
+    res.status(error.code === '23505' ? 409 : 500).send(registerPage(message));
+  }
+});
 
 app.get('/users', async (req, res) => {
   const result = await pool.query('SELECT id, username, role, is_active, created_at FROM app_users ORDER BY role, username');
