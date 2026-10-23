@@ -295,8 +295,8 @@ function contractFilterQuery(query) {
     else conditions.push(`c.status = ${addValue(status)}`);
   }
   if (Number.isInteger(counterpartyId) && counterpartyId > 0) conditions.push(`p.id = ${addValue(counterpartyId)}`);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) conditions.push(`COALESCE(c.end_date, c.start_date, c.created_at::date) >= ${addValue(from)}::date`);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) conditions.push(`COALESCE(c.start_date, c.created_at::date) <= ${addValue(to)}::date`);
+  if (isValidIsoDate(from)) conditions.push(`COALESCE(c.end_date, c.start_date, c.created_at::date) >= ${addValue(from)}::date`);
+  if (isValidIsoDate(to)) conditions.push(`COALESCE(c.start_date, c.created_at::date) <= ${addValue(to)}::date`);
   return { values, where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '' };
 }
 
@@ -304,6 +304,19 @@ function csvCell(value) {
   let text = String(value ?? '');
   if (/^\s*[=+@-]/.test(text)) text = `'${text}`;
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function isValidIsoDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 app.get('/setup', async (_req, res) => {
@@ -402,6 +415,7 @@ app.get('/', async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'Chờ phê duyệt')::int AS pending,
         COUNT(*) FILTER (WHERE status = 'Đang hiệu lực' AND (end_date IS NULL OR end_date >= CURRENT_DATE))::int AS active,
         COUNT(*) FILTER (WHERE status = 'Hết hạn' OR (status = 'Đang hiệu lực' AND end_date < CURRENT_DATE))::int AS expired,
+        COUNT(*) FILTER (WHERE status = 'Đang hiệu lực' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30)::int AS upcoming,
         COUNT(*) FILTER (WHERE status = 'Đã hủy')::int AS cancelled,
         COALESCE(SUM(contract_value), 0)::numeric AS total_value
       FROM contracts
@@ -432,14 +446,14 @@ app.get('/', async (req, res) => {
       <div class="stats-grid">
         <section class="card stat-card"><div class="stat-label">Tổng hợp đồng</div><div class="stat-value">${s.total}</div><div class="stat-note">Tổng số hồ sơ</div></section>
         <section class="card stat-card"><div class="stat-label">Đang hiệu lực</div><div class="stat-value">${s.active}</div><div class="stat-note">Còn trong thời hạn</div></section>
-        <section class="card stat-card"><div class="stat-label">Sắp hết hạn</div><div class="stat-value">${upcoming.rowCount}</div><div class="stat-note">Trong 30 ngày tới</div></section>
+        <section class="card stat-card"><div class="stat-label">Sắp hết hạn</div><div class="stat-value">${s.upcoming}</div><div class="stat-note">Trong 30 ngày tới</div></section>
         <section class="card stat-card"><div class="stat-label">Tổng giá trị</div><div class="stat-value">${money(s.total_value)}</div><div class="stat-note">Tất cả trạng thái</div></section>
       </div>
       <section class="card"><div class="page-head"><div><h2>Trạng thái hợp đồng</h2><p>Hạn đã qua được tính là hết hạn.</p></div></div>
         <div class="stats-grid"><div><span class="stat-label">Nháp</span><div class="stat-value">${s.draft}</div></div><div><span class="stat-label">Chờ phê duyệt</span><div class="stat-value">${s.pending}</div></div><div><span class="stat-label">Hết hạn</span><div class="stat-value">${s.expired}</div></div><div><span class="stat-label">Đã hủy</span><div class="stat-value">${s.cancelled}</div></div></div>
       </section>
       <section class="card">${pageHead('Sắp hết hạn', 'Hợp đồng đang hiệu lực sẽ kết thúc trong 30 ngày.', '<a href="/contracts?status=Đang+hiệu+lực">Xem danh sách</a>')}${upcoming.rowCount ? contractTable(upcoming.rows) : '<div class="empty-state">Chưa có hợp đồng sắp hết hạn.</div>'}</section>
-      ${expired.rowCount ? `<section class="card"><div class="notice-danger"><strong>${expired.rowCount} hợp đồng đã hết hạn</strong> trong danh sách cảnh báo gần nhất.</div>${contractTable(expired.rows)}</section>` : ''}
+      ${s.expired ? `<section class="card"><div class="notice-danger"><strong>${s.expired} hợp đồng đã hết hạn</strong>; hiển thị tối đa 5 hợp đồng gần nhất.</div>${contractTable(expired.rows)}</section>` : ''}
       <section class="card">${pageHead('Hợp đồng cập nhật gần đây', '', '<a href="/contracts">Xem tất cả</a>')}${contractTable(recent.rows)}</section>`, req.session.username));
   } catch (error) {
     console.error('Load dashboard failed:', error.message);
@@ -495,7 +509,7 @@ async function validateContractInput(body) {
   if (!contractCode || contractCode.length > 40 || !title || title.length > 200) return { error: 'Mã và tên hợp đồng là bắt buộc, tối đa lần lượt 40 và 200 ký tự.' };
   if (!contractStatuses.includes(status)) return { error: 'Trạng thái hợp đồng không hợp lệ.' };
   if (!Number.isFinite(value) || value < 0 || value > maxContractValue) return { error: 'Giá trị hợp đồng phải từ 0 đến 999.999.999.999,99 VNĐ.' };
-  const validDate = date => !date || (/^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(`${date}T00:00:00Z`)));
+  const validDate = date => !date || isValidIsoDate(date);
   if (!validDate(startDate) || !validDate(endDate)) return { error: 'Ngày hợp đồng không hợp lệ.' };
   if (startDate && endDate && startDate > endDate) return { error: 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.' };
   if (!partyIds.length) return { error: 'Hãy chọn ít nhất một bên liên quan.' };
@@ -672,8 +686,11 @@ app.post('/counterparties/:id/delete', async (req, res) => {
 app.get('/reports', async (req, res) => {
   const parsedYear = Number(req.query.year || new Date().getFullYear());
   const year = Number.isInteger(parsedYear) && parsedYear >= 2000 && parsedYear <= 2100 ? parsedYear : new Date().getFullYear();
-  const stats = await pool.query(`SELECT status, COUNT(*)::int AS count, COALESCE(SUM(contract_value),0)::numeric AS value
-    FROM contracts WHERE EXTRACT(YEAR FROM created_at)=$1 GROUP BY status ORDER BY status`, [year]);
+  const stats = await pool.query(`SELECT CASE
+      WHEN status = 'Đang hiệu lực' AND end_date < CURRENT_DATE THEN 'Hết hạn'
+      ELSE status END AS report_status,
+      COUNT(*)::int AS count, COALESCE(SUM(contract_value),0)::numeric AS value
+    FROM contracts WHERE EXTRACT(YEAR FROM created_at)=$1 GROUP BY report_status ORDER BY report_status`, [year]);
   const months = await pool.query(`SELECT EXTRACT(MONTH FROM created_at)::int AS month, COUNT(*)::int AS count,
     COALESCE(SUM(contract_value),0)::numeric AS value FROM contracts
     WHERE EXTRACT(YEAR FROM created_at)=$1 GROUP BY month ORDER BY month`, [year]);
@@ -685,7 +702,7 @@ app.get('/reports', async (req, res) => {
     const value = Number(row?.value || 0);
     return `<div class="month-row"><strong>${String(index + 1).padStart(2, '0')}</strong><div class="month-track"><div class="month-bar" style="width:${Math.round(value / maxValue * 100)}%"></div></div><div class="month-amount">${row?.count || 0} · ${money(value)}</div></div>`;
   }).join('');
-  const statusRows = stats.rows.map(row => `<tr><td>${statusBadge(row.status)}</td><td>${row.count}</td><td>${money(row.value)}</td></tr>`).join('') || emptyRow(3, 'Chưa có dữ liệu trong năm này.');
+  const statusRows = stats.rows.map(row => `<tr><td>${statusBadge(row.report_status)}</td><td>${row.count}</td><td>${money(row.value)}</td></tr>`).join('') || emptyRow(3, 'Chưa có dữ liệu trong năm này.');
   res.send(page(`<section class="card">${pageHead('Báo cáo và thống kê', 'Tổng hợp hợp đồng theo năm tạo.', `<a class="button-link" href="/reports/export.csv?year=${year}">Xuất CSV</a>`)}
     <form class="top" method="get"><label for="report-year">Năm báo cáo</label><input id="report-year" name="year" type="number" min="2000" max="2100" value="${year}" style="max-width:180px"><button type="submit">Xem báo cáo</button></form></section>
     <div class="stats-grid"><section class="card stat-card"><div class="stat-label">Hợp đồng tạo năm ${year}</div><div class="stat-value">${totals.rows[0].count}</div></section><section class="card stat-card"><div class="stat-label">Tổng giá trị</div><div class="stat-value">${money(totals.rows[0].value)}</div></section></div>
