@@ -177,11 +177,12 @@ docker compose down</pre>
 
   <section class="page">
     <h2>Ứng dụng web, PostgreSQL và pgAdmin</h2>
-    <p>Ứng dụng yêu cầu đăng nhập trước khi truy cập nghiệp vụ. Lần đầu mở trang sẽ chuyển tới <code>/setup</code> để tạo tài khoản quản trị; mật khẩu được lưu bằng bcrypt. Session hết hạn sau 8 giờ, lưu trong PostgreSQL và cookie có HttpOnly/SameSite.</p>
+    <p>Ứng dụng yêu cầu đăng nhập trước khi truy cập nghiệp vụ. Lần đầu mở trang chuyển tới <code>/setup</code> để tạo quản trị viên. Admin đăng nhập riêng tại <code>/admin/login</code>, người dùng tại <code>/login</code>; admin tạo/khóa user tại mục Người dùng, user không thể mở trang quản trị. Mật khẩu dùng bcrypt; session lưu PostgreSQL, hết hạn sau 8 giờ và cookie có HttpOnly/SameSite.</p>
     <p>Dashboard hiển thị tổng số, số lượng theo trạng thái, tổng giá trị, hợp đồng gần hết hạn và hồ sơ cập nhật gần đây. Chức năng quản lý hỗ trợ tạo, xem chi tiết, sửa và xóa; lọc theo mã/tên, trạng thái, bên liên quan và thời gian. Một hợp đồng có thể gắn nhiều bên liên quan; danh bạ lưu email, điện thoại, địa chỉ.</p>
     <p>Ứng dụng có nhắc hợp đồng hết hạn trong 30 ngày, phân biệt hợp đồng quá ngày kết thúc, thống kê theo tháng/năm và xuất CSV. Endpoint <code>/health</code> thực hiện <code>SELECT 1</code>; <code>/metrics</code> xuất dữ liệu Prometheus.</p>
-    <figure><img src="evidence/web-app.png" alt="Màn hình khởi tạo tài khoản quản trị"><figcaption>Hình 2. Màn hình thiết lập tài khoản quản trị khi triển khai lần đầu; sau khi tạo tài khoản, dashboard và nghiệp vụ được bảo vệ bằng đăng nhập.</figcaption></figure>
-    <figure><img src="evidence/pgadmin.png" alt="Giao diện pgAdmin"><figcaption>Hình 3. pgAdmin được phục vụ dưới đường dẫn /pgadmin/. Ở lần chạy đầu, cần đặt master password trong pgAdmin trước khi sử dụng.</figcaption></figure>
+    <figure><img src="evidence/web-app.png" alt="Danh sách hợp đồng với sidebar điều hướng"><figcaption>Hình 2. Danh sách hợp đồng với sidebar navy, tìm kiếm, bộ lọc nâng cao, trạng thái và giá trị hợp đồng; sidebar Người dùng chỉ dành cho admin.</figcaption></figure>
+    <figure><img src="evidence/web-app-mobile.png" alt="Giao diện quản lý hợp đồng trên điện thoại"><figcaption>Hình 3. Giao diện mobile: thanh điều hướng cuộn ngang và bảng cuộn trong vùng nội dung riêng.</figcaption></figure>
+    <figure><img src="evidence/pgadmin.png" alt="Giao diện pgAdmin"><figcaption>Hình 4. pgAdmin được phục vụ dưới đường dẫn /pgadmin/. Ở lần chạy đầu, cần đặt master password trong pgAdmin trước khi sử dụng.</figcaption></figure>
     <p class="small">Để kết nối database từ pgAdmin, thêm server với Host <code>db</code>, Port <code>5432</code>, Maintenance database theo <code>POSTGRES_DB</code>, username/password theo <code>POSTGRES_USER</code> và <code>POSTGRES_PASSWORD</code>. Tài khoản dùng đăng nhập pgAdmin riêng với tài khoản kết nối database.</p>
     <div class="footer"><span>Ứng dụng và quản trị database</span><span>Trang 7</span></div>
   </section>
@@ -201,9 +202,9 @@ docker compose down</pre>
   <section class="page">
     <h2>Prometheus và Grafana</h2>
     <p>Prometheus dùng chu kỳ scrape 15 giây. Các job được cấu hình gồm Prometheus, contract-web tại <code>/metrics</code>, cAdvisor và postgres-exporter. PostgreSQL được giám sát qua exporter; không publish cổng 5432 ra host.</p>
-    <figure><img src="evidence/prometheus-targets.png" alt="Prometheus targets"><figcaption>Hình 4. Giao diện Prometheus Targets: các job ứng dụng, PostgreSQL exporter, cAdvisor và Prometheus đang UP.</figcaption></figure>
+    <figure><img src="evidence/prometheus-targets.png" alt="Prometheus targets"><figcaption>Hình 5. Giao diện Prometheus Targets: các job ứng dụng, PostgreSQL exporter, cAdvisor và Prometheus đang UP.</figcaption></figure>
     <p>Grafana tự động provision datasource Prometheus và Loki. Dashboard “Contract System Overview” gồm trạng thái scrape, request rate theo method/status, bộ nhớ tiến trình web, trạng thái PostgreSQL exporter, CPU và working-set memory container, cùng log ứng dụng lấy từ Loki.</p>
-    <figure><img src="evidence/grafana-dashboard.png" alt="Grafana dashboard"><figcaption>Hình 5. Dashboard Grafana provisioned với metrics của web, PostgreSQL, container và log ứng dụng.</figcaption></figure>
+    <figure><img src="evidence/grafana-dashboard.png" alt="Grafana dashboard"><figcaption>Hình 6. Dashboard Grafana provisioned với metrics của web, PostgreSQL, container và log ứng dụng.</figcaption></figure>
     <p class="small">Kết quả kiểm tra từ API Prometheus ghi nhận target <code>cadvisor</code>, <code>contract-web</code>, <code>postgres</code> và <code>prometheus</code> đều có health=up và không có lastError. Dashboard được tải qua API Grafana với UID <code>contract-system-overview</code>.</p>
     <div class="footer"><span>Metrics và dashboard</span><span>Trang 9</span></div>
   </section>

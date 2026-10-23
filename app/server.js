@@ -11,6 +11,7 @@ const port = Number(process.env.PORT || 3000);
 const maxContractValue = 999999999999.99;
 const contractStatuses = ['Nháp', 'Chờ phê duyệt', 'Đang hiệu lực', 'Hết hạn', 'Đã hủy'];
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const userRoleCache = new Map();
 const sessionSecret = process.env.SESSION_SECRET || randomBytes(48).toString('hex');
 const register = new client.Registry();
 app.disable('x-powered-by');
@@ -45,9 +46,25 @@ app.use(session({
     maxAge: 8 * 60 * 60 * 1000,
   },
 }));
-app.use((req, res, next) => {
-  if (['/login', '/setup', '/health', '/metrics'].includes(req.path) || req.session.userId) return next();
-  res.redirect('/login');
+app.use(async (req, res, next) => {
+  if (['/login', '/admin/login', '/setup', '/health', '/metrics'].includes(req.path)) return next();
+  if (!req.session.userId) return res.redirect(req.path.startsWith('/admin') ? '/admin/login' : '/login');
+  try {
+    const result = await pool.query('SELECT username, role FROM app_users WHERE id=$1 AND is_active=TRUE', [req.session.userId]);
+    if (!result.rowCount) {
+      req.session.destroy(() => {});
+      res.clearCookie('connect.sid', { path: '/' });
+      return res.redirect(req.path.startsWith('/admin') ? '/admin/login' : '/login');
+    }
+    req.session.username = result.rows[0].username;
+    req.session.role = result.rows[0].role;
+    if ((req.path === '/users' || req.path.startsWith('/users/')) && req.session.role !== 'admin') {
+      return res.status(403).send(page('<section class="card"><h2>Bạn không có quyền truy cập trang này.</h2></section>', req.session.username, req.session.role, req.path));
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
 });
 
 async function initDb() {
@@ -105,50 +122,77 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       username VARCHAR(255) NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      role VARCHAR(16) NOT NULL DEFAULT 'admin',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query('ALTER TABLE app_users ALTER COLUMN username TYPE VARCHAR(255)');
+  await pool.query("ALTER TABLE app_users ADD COLUMN IF NOT EXISTS role VARCHAR(16) NOT NULL DEFAULT 'admin'");
+  await pool.query('ALTER TABLE app_users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE');
+  const users = await pool.query('SELECT username, role FROM app_users');
+  userRoleCache.clear();
+  for (const user of users.rows) userRoleCache.set(user.username, user.role);
 }
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({
   '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
 }[c]));
 const money = (v) => Number(v || 0).toLocaleString('vi-VN') + ' ₫';
+const formatDate = value => value ? (value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10)) : '';
+const displayDate = value => {
+  const date = formatDate(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : '';
+};
 
-function page(content, username = '') {
-  const accountControl = username
-    ? `<div class="header-account"><span>${esc(username)}</span><form method="post" action="/logout"><button type="submit">Đăng xuất</button></form></div>`
+function page(content, username = '', role = '', activePath = '') {
+  role = role || userRoleCache.get(username) || 'user';
+  if (!activePath) {
+    const title = content.match(/<h2[^>]*>([^<]+)/)?.[1] || '';
+    if (title.startsWith('Tổng quan')) activePath = '/';
+    else if (title.includes('Bên liên quan')) activePath = '/counterparties';
+    else if (title.includes('Báo cáo')) activePath = '/reports';
+    else if (title.includes('người dùng') || title.includes('Người dùng')) activePath = '/users';
+    else activePath = '/contracts';
+  }
+  const navItems = [
+    { href: '/', label: 'Tổng quan', active: activePath === '/' },
+    { href: '/contracts', label: 'Quản lý hợp đồng', active: activePath.startsWith('/contracts') && !activePath.includes('status=') },
+    { href: '/counterparties', label: 'Bên liên quan', active: activePath.startsWith('/counterparties') },
+    { href: '/contracts?status=Ch%E1%BB%9D+ph%C3%AA+duy%E1%BB%87t', label: 'Theo dõi trạng thái', active: activePath.includes('status=') },
+    { href: '/reports', label: 'Báo cáo', active: activePath.startsWith('/reports') },
+    { href: '/settings', label: 'Cài đặt', active: activePath.startsWith('/settings') },
+  ];
+  if (role === 'admin') navItems.push({ href: '/users', label: 'Người dùng', active: activePath.startsWith('/users') });
+  const navigation = username ? navItems.map(item => `<a class="sidebar-link ${item.active ? 'active' : ''}" href="${item.href}"><span class="nav-dot">•</span>${item.label}</a>`).join('') : '';
+  const userLabel = role === 'admin' ? 'Quản trị viên' : 'Người dùng';
+  const authActions = username
+    ? `<div class="user-actions"><span class="role-chip">${userLabel} <span aria-hidden="true">▾</span></span><span class="user-name">${esc(username)}</span><form method="post" action="/logout"><button class="logout-button" type="submit">Đăng xuất</button></form></div>`
     : '';
-  const appNav = username
-    ? '<nav class="main-nav"><a href="/">Tổng quan</a><a href="/contracts">Hợp đồng</a><a href="/counterparties">Bên liên quan</a><a href="/reports">Báo cáo</a></nav>'
-    : '';
+  const shell = username
+    ? `<div class="app-shell"><aside class="sidebar"><a class="brand" href="/"><strong>CONTRACT</strong><span>MANAGEMENT</span></a><nav class="sidebar-nav">${navigation}</nav></aside><div class="workspace"><header class="topbar"><h1>Quản lý hợp đồng</h1>${authActions}</header><main>${content}<footer class="app-footer">Hệ thống Quản lý Hợp đồng</footer></main></div></div>`
+    : `<main class="auth-shell">${content}</main>`;
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Quản lý hợp đồng</title><style>
-  *{box-sizing:border-box}body{margin:0;background:#f3f6fb;color:#1f2937;font:15px Arial,sans-serif;line-height:1.5}
-  header{background:#142d4e;color:white;padding:24px max(20px,calc((100% - 1100px)/2));border-bottom:4px solid #1769d2;box-shadow:0 3px 12px #10204018}
-  .header-row{display:flex;align-items:center;justify-content:space-between;gap:16px}.header-account{display:flex;align-items:center;gap:12px}.header-account span{color:#d7e6fa;font-size:13px}.header-account form{margin:0}.header-account button{min-height:36px;padding:6px 11px;border:1px solid #8fa9c2;background:transparent;font-size:13px}.header-account button:hover{background:#ffffff18}
-  .main-nav{display:flex;gap:5px;margin-top:18px;overflow-x:auto}.main-nav a{padding:8px 12px;border-radius:5px;color:#e5eff8;text-decoration:none;font-size:13px;font-weight:bold;white-space:nowrap}.main-nav a:hover,.main-nav a[aria-current="page"]{background:#ffffff1c;color:white}
-  header h1{margin:0 0 6px;font-size:26px;line-height:1.25}header p{margin:0;color:#d7e6fa;font-size:14px}
-  main{max-width:1140px;margin:28px auto;padding:0 20px}.card{background:white;padding:24px;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 5px 18px #1020400d;margin-bottom:20px}
-  h2{margin:0 0 18px;padding-left:11px;border-left:3px solid #1769d2;font-size:20px;line-height:1.35;color:#142d4e}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-  label{display:block;font-weight:bold;font-size:13px;color:#34475a;margin-bottom:6px}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;color:#1f2937;font:inherit;transition:border-color .15s ease,box-shadow .15s ease}
-  input::placeholder,textarea::placeholder{color:#8391a0}input:hover,select:hover,textarea:hover{border-color:#94a3b8}input:focus,select:focus,textarea:focus{outline:none;border-color:#1769d2;box-shadow:0 0 0 3px #1769d226}
-  textarea{min-height:88px;resize:vertical}button{min-height:42px;background:#1769d2;color:white;border:0;border-radius:6px;padding:10px 17px;cursor:pointer;font:inherit;font-weight:bold;transition:background .15s ease,box-shadow .15s ease,transform .15s ease}
-  button:hover{background:#1258b5;box-shadow:0 3px 9px #1769d233;transform:translateY(-1px)}button:active{transform:translateY(0)}button:focus-visible,a:focus-visible{outline:3px solid #1769d266;outline-offset:2px}
-  .table-wrap{overflow-x:auto;border:1px solid #e2e8f0;border-radius:7px}table{width:100%;border-collapse:separate;border-spacing:0;min-width:780px}th,td{text-align:left;border-bottom:1px solid #e8edf2;padding:12px 10px}th{background:#f4f7fa;color:#34475a;font-size:12px;font-weight:bold;white-space:nowrap}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:#f8fbff}
-  .pill{display:inline-block;padding:4px 9px;border:1px solid #cfe0f7;border-radius:999px;background:#eaf2ff;color:#164b8a;font-size:12px;font-weight:bold;white-space:nowrap}
-  .top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.top h2{margin:0}.top form{display:flex;align-items:center;gap:8px}.muted{color:#64748b;font-size:13px}.alert{background:#dcfce7;color:#166534;padding:11px 13px;border:1px solid #bbf7d0;border-radius:6px;margin-bottom:14px}
-  .auth-card{max-width:480px;margin:34px auto}.auth-card h2{margin-bottom:10px}.auth-card .auth-intro{margin:0 0 18px;color:#64748b}.auth-card .auth-field{margin:14px 0}.auth-card .auth-submit{width:100%;margin-top:8px}.auth-error{margin:12px 0;padding:10px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#991b1b}
-  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.page-head h2{margin:0}.page-head p{margin:6px 0 0;color:#64748b}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.button-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 13px;border-radius:6px;background:#1769d2;color:#fff;text-decoration:none;font-weight:bold}.button-link:hover{background:#1258b5;color:#fff}.button-secondary{background:#fff;color:#1769d2;border:1px solid #b8cbe0}.button-secondary:hover{background:#f2f7fd;color:#1258b5}.button-danger{background:#b42318}.button-danger:hover{background:#912018}
-  .stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.stat-card{padding:17px 18px;border-top:3px solid #1769d2}.stat-label{color:#64748b;font-size:13px}.stat-value{margin-top:6px;color:#142d4e;font-size:27px;font-weight:bold}.stat-note{margin-top:4px;color:#64748b;font-size:12px}.status-active{background:#e7f7ee;border-color:#bde7cc;color:#17643b}.status-expired{background:#fff1f0;border-color:#ffd2cc;color:#a1281b}.status-draft{background:#edf3fb;border-color:#cbd9eb;color:#385475}.status-pending{background:#fff7e8;border-color:#f6dfb0;color:#80550e}.status-cancelled{background:#f1f2f4;border-color:#d7dbe0;color:#59616a}
-  .filter-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;align-items:end;gap:10px}.filter-grid label{font-size:12px}.filter-grid button{white-space:nowrap}.field-hint{display:block;margin-top:4px;color:#64748b;font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.detail-item{padding:12px;border-bottom:1px solid #e8edf2}.detail-label{display:block;color:#64748b;font-size:12px}.detail-value{display:block;margin-top:4px;font-weight:600;overflow-wrap:anywhere}.notice-warning{padding:12px 14px;border:1px solid #f2d28c;border-radius:6px;background:#fff8e8;color:#704d0b}.notice-danger{padding:12px 14px;border:1px solid #f2c4bf;border-radius:6px;background:#fff2f0;color:#8c251b}.empty-state{padding:28px 12px;text-align:center;color:#64748b}.table-actions{display:flex;align-items:center;gap:7px;white-space:nowrap}.inline-form{display:inline;margin:0}.monthly-chart{display:grid;gap:8px}.month-row{display:grid;grid-template-columns:46px minmax(70px,1fr) 120px;align-items:center;gap:10px}.month-track{height:12px;overflow:hidden;border-radius:8px;background:#e8eef5}.month-bar{height:100%;border-radius:8px;background:#1769d2}.month-amount{text-align:right;color:#526273;font-size:12px}
-  .danger{color:#b91c1c}.smallbtn{min-height:34px;padding:6px 11px;font-size:12px}a{color:#1769d2}
-  @media(max-width:850px){.filter-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media(max-width:650px){header{padding:20px}.header-row{align-items:flex-start;flex-direction:column}header h1{font-size:22px}main{margin:18px auto;padding:0 12px}.main-nav{margin-top:13px}.grid,.detail-grid{grid-template-columns:1fr;gap:13px}.card{padding:17px;margin-bottom:14px}.top form{width:100%}.top form input{min-width:0;flex:1}.top form button{flex:none}.filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-grid > :first-child{grid-column:1/-1}.page-head{align-items:stretch;flex-direction:column}.page-head .actions{width:100%}.stats-grid{gap:9px}.stat-card{padding:13px}.stat-value{font-size:23px}.month-row{grid-template-columns:36px minmax(40px,1fr) 92px;gap:7px}}
-  </style></head><body><header><div class="header-row"><div><h1>Hệ thống Quản lý Hợp đồng</h1>
-  <p>Tạo mới · Theo dõi trạng thái · Quản lý các bên liên quan</p></div>${accountControl}</div>${appNav}</header><main>${content}
-  <p class="muted">Bài tập môn Triển khai và Quản trị Hệ thống Phần mềm · Node.js + PostgreSQL + Docker</p></main></body></html>`;
+  *{box-sizing:border-box}body{margin:0;background:#f3f5f8;color:#1f2937;font:15px Arial,sans-serif;line-height:1.5}
+  .app-shell{min-height:100vh;display:grid;grid-template-columns:252px minmax(0,1fr)}.sidebar{position:sticky;top:0;height:100vh;padding:22px 14px;background:#19283f;color:#e7edf5;overflow:auto}.brand{display:flex;flex-direction:column;margin:0 14px 48px;color:white;text-decoration:none;line-height:1.25}.brand strong{font-size:27px;letter-spacing:.4px}.brand span{margin-top:3px;color:#a8bad1;font-size:16px}.sidebar-nav{display:grid;gap:8px}.sidebar-link{display:flex;align-items:center;gap:12px;min-height:43px;padding:8px 13px;border-radius:8px;color:#c7d2e0;text-decoration:none;font-size:15px;white-space:nowrap}.sidebar-link:hover{background:#ffffff12;color:white}.sidebar-link.active{background:#2c64b2;color:#fff;font-weight:bold}.nav-dot{width:12px;color:inherit;font-size:20px;line-height:1;text-align:center}
+  .workspace{min-width:0}.topbar{height:76px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 28px;background:#fff;border-bottom:1px solid #e6eaf0}.topbar h1{margin:0;color:#1d2b43;font-size:26px;line-height:1.2;white-space:nowrap}.user-actions{display:flex;align-items:center;gap:8px;min-width:0}.role-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border-radius:20px;background:#edf2f8;color:#42546c;white-space:nowrap}.user-name{max-width:130px;overflow:hidden;color:#53657a;text-overflow:ellipsis;white-space:nowrap}.user-actions form{margin:0}.logout-button{min-height:36px;padding:6px 11px;background:transparent;color:#385574;border:1px solid #ccd6e2;font-size:13px;white-space:nowrap}.logout-button:hover{background:#edf2f8;transform:none;box-shadow:none}
+  .workspace main{max-width:none;margin:0;padding:28px 36px 18px}.app-footer{margin-top:46px;color:#8897a9;font-size:13px}.auth-shell{min-height:100vh;display:grid;place-items:center;padding:28px;background:#f3f5f8}
+  .card{background:white;padding:24px;border:1px solid #dfe5ed;border-radius:8px;box-shadow:0 2px 7px #1327430a;margin-bottom:20px}
+  h2{margin:0 0 18px;padding-left:11px;border-left:3px solid #1769d2;font-size:20px;line-height:1.35;color:#23344e}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+  label{display:block;font-weight:bold;font-size:13px;color:#34475a;margin-bottom:6px}input,select,textarea{width:100%;min-height:42px;padding:9px 12px;border:1px solid #d6dee8;border-radius:6px;background:#fff;color:#1f2937;font:inherit;transition:border-color .15s ease,box-shadow .15s ease}input::placeholder,textarea::placeholder{color:#9aa8b8}input:hover,select:hover,textarea:hover{border-color:#9eb0c4}input:focus,select:focus,textarea:focus{outline:none;border-color:#3472c3;box-shadow:0 0 0 3px #3472c322}
+  textarea{min-height:88px;resize:vertical}button{min-height:40px;background:#326ab4;color:white;border:0;border-radius:6px;padding:9px 16px;cursor:pointer;font:inherit;font-weight:bold;transition:background .15s ease,box-shadow .15s ease,transform .15s ease}button:hover{background:#255996;box-shadow:0 2px 7px #193d6c24;transform:translateY(-1px)}button:active{transform:translateY(0)}button:focus-visible,a:focus-visible{outline:3px solid #3472c355;outline-offset:2px}
+  .table-wrap{overflow:auto;border:0;border-radius:0}table{width:100%;border-collapse:separate;border-spacing:0;min-width:760px}th,td{text-align:left;border-bottom:1px solid #edf0f4;padding:11px 12px}th{background:#edf1f6;color:#52627a;font-size:12px;font-weight:bold;white-space:nowrap}tbody tr:last-child td{border-bottom:0}tbody tr:nth-child(even){background:#fafbfd}tbody tr:hover{background:#f3f7fc}
+  .pill{display:inline-block;padding:4px 9px;border:1px solid #cfe0f7;border-radius:999px;background:#eaf2ff;color:#164b8a;font-size:12px;font-weight:bold;white-space:nowrap}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.top h2{margin:0}.top form{display:flex;align-items:center;gap:8px}.muted{color:#718198;font-size:13px}.alert{background:#e9f7ee;color:#166534;padding:11px 13px;border:1px solid #cbe9d4;border-radius:6px;margin-bottom:14px}
+  .auth-card{width:min(460px,100%);margin:0;padding:30px}.auth-card h2{margin-bottom:10px}.auth-card .auth-intro{margin:0 0 18px;color:#64748b}.auth-card .auth-field{margin:14px 0}.auth-card .auth-submit{width:100%;margin-top:8px}.auth-error{margin:12px 0;padding:10px 12px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:#991b1b}
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}.page-head h2{margin:0}.page-head p{margin:6px 0 0;color:#718198}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.button-link{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:7px 13px;border-radius:6px;background:#326ab4;color:#fff;text-decoration:none;font-weight:bold}.button-link:hover{background:#255996;color:#fff}.button-secondary{background:#fff;color:#326ab4;border:1px solid #cbd6e3}.button-secondary:hover{background:#f3f7fc;color:#255996}.button-danger{background:#b42318}.button-danger:hover{background:#912018}
+  .contract-intro{margin:0 0 22px;color:#718198;font-size:16px}.contract-list-card{min-height:540px;padding:22px}.contracts-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:18px}.contract-search{display:flex;align-items:center;gap:10px;flex:1;min-width:0}.contract-search input{max-width:320px;min-width:0;flex:1;background:#f8fafc}.contract-search button,.contracts-toolbar>.button-link{flex:none;white-space:nowrap}.filter-details{margin:0 0 16px;border-top:1px solid #e8edf2}.filter-details summary{padding:12px 0;color:#53657a;font-size:13px;font-weight:bold;cursor:pointer}.filter-details[open] summary{margin-bottom:10px}.contract-list-table{min-width:720px}.contract-list-table td:nth-child(2){min-width:175px}.status-upcoming{background:#fff7e8;border-color:#f6dfb0;color:#80550e}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.stat-card{padding:17px 18px;border-top:3px solid #326ab4}.stat-label{color:#718198;font-size:13px}.stat-value{margin-top:6px;color:#1d2b43;font-size:27px;font-weight:bold}.stat-note{margin-top:4px;color:#718198;font-size:12px}.status-active{background:#e7f7ee;border-color:#bde7cc;color:#17643b}.status-expired{background:#fff1f0;border-color:#ffd2cc;color:#a1281b}.status-draft{background:#edf3fb;border-color:#cbd9eb;color:#385475}.status-pending{background:#fff7e8;border-color:#f6dfb0;color:#80550e}.status-cancelled{background:#f1f2f4;border-color:#d7dbe0;color:#59616a}
+  .filter-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;align-items:end;gap:10px}.filter-grid label{font-size:12px}.filter-grid button{white-space:nowrap}.field-hint{display:block;margin-top:4px;color:#64748b;font-size:12px}.detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.detail-item{padding:12px;border-bottom:1px solid #e8edf2}.detail-label{display:block;color:#718198;font-size:12px}.detail-value{display:block;margin-top:4px;font-weight:600;overflow-wrap:anywhere}.notice-warning{padding:12px 14px;border:1px solid #f2d28c;border-radius:6px;background:#fff8e8;color:#704d0b}.notice-danger{padding:12px 14px;border:1px solid #f2c4bf;border-radius:6px;background:#fff2f0;color:#8c251b}.empty-state{padding:28px 12px;text-align:center;color:#718198}.table-actions{display:flex;align-items:center;gap:7px;white-space:nowrap}.inline-form{display:inline;margin:0}.monthly-chart{display:grid;gap:8px}.month-row{display:grid;grid-template-columns:46px minmax(70px,1fr) 120px;align-items:center;gap:10px}.month-track{height:12px;overflow:hidden;border-radius:8px;background:#e8eef5}.month-bar{height:100%;border-radius:8px;background:#326ab4}.month-amount{text-align:right;color:#526273;font-size:12px}.danger{color:#b91c1c}.smallbtn{min-height:34px;padding:6px 11px;font-size:12px}
+  @media(max-width:900px){.app-shell{grid-template-columns:215px minmax(0,1fr)}.sidebar{padding-inline:10px}.topbar{padding-inline:24px}.workspace main{padding:24px}.filter-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:650px){.app-shell{grid-template-columns:1fr}.sidebar{position:static;width:100%;height:auto;padding:13px 12px}.brand{margin:0 8px 11px}.brand strong{font-size:20px}.brand span{font-size:12px}.sidebar-nav{display:flex;gap:4px;overflow-x:auto}.sidebar-link{min-height:38px;padding:7px 10px;font-size:13px}.workspace{min-width:0}.topbar{height:auto;min-height:68px;padding:12px 16px;align-items:flex-start;flex-direction:column;gap:10px}.topbar h1{font-size:22px}.user-actions{width:100%;flex-wrap:wrap}.workspace main{padding:20px 14px}.grid,.detail-grid{grid-template-columns:1fr;gap:13px}.card{padding:17px;margin-bottom:14px}.top form{width:100%}.top form input{min-width:0;flex:1}.contracts-toolbar{align-items:stretch;flex-direction:column}.contract-search{width:100%}.contract-search input{max-width:none;min-width:0;flex:1}.contracts-toolbar>.button-link{width:100%}.filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.filter-grid > :first-child{grid-column:1/-1}.page-head{align-items:stretch;flex-direction:column}.page-head .actions{width:100%}.stats-grid{gap:9px}.stat-card{padding:13px}.stat-value{font-size:23px}.month-row{grid-template-columns:36px minmax(40px,1fr) 92px;gap:7px}}
+  </style></head><body>${shell}</body></html>`;
 }
 
 async function hasUsers() {
@@ -168,15 +212,19 @@ function setupPage(error = '') {
     </form></section>`);
 }
 
-function loginPage(error = '') {
+function loginPage(error = '', role = 'user') {
+  const isAdmin = role === 'admin';
   const message = error ? '<div class="auth-error">Tên đăng nhập hoặc mật khẩu không đúng.</div>' : '';
-  return page(`<section class="card auth-card"><h2>Đăng nhập</h2>
+  const title = isAdmin ? 'Đăng nhập quản trị viên' : 'Đăng nhập người dùng';
+  const switchLink = isAdmin ? '<a href="/login">Đăng nhập với tài khoản người dùng</a>' : '<a href="/admin/login">Đăng nhập quản trị viên</a>';
+  const action = isAdmin ? '/admin/login' : '/login';
+  return page(`<section class="card auth-card"><h2>${title}</h2>
     <p class="auth-intro">Đăng nhập để tiếp tục quản lý hợp đồng.</p>${message}
-    <form method="post" action="/login">
+    <form method="post" action="${action}">
       <div class="auth-field"><label for="login-username">Tên đăng nhập</label><input id="login-username" name="username" required autocomplete="username"></div>
       <div class="auth-field"><label for="login-password">Mật khẩu</label><input id="login-password" name="password" type="password" required autocomplete="current-password"></div>
       <button class="auth-submit" type="submit">Đăng nhập</button>
-    </form></section>`);
+    </form><p class="auth-intro">${switchLink}</p></section>`);
 }
 
 function regenerateSession(req) {
@@ -193,7 +241,8 @@ function saveSession(req) {
 
 function currentContractStatus(contract) {
   const today = new Date().toISOString().slice(0, 10);
-  if (contract.status === 'Đang hiệu lực' && contract.end_date && contract.end_date < today) return 'Hết hạn';
+  const endDate = formatDate(contract.end_date);
+  if (contract.status === 'Đang hiệu lực' && endDate && endDate < today) return 'Hết hạn';
   return contract.status;
 }
 
@@ -222,7 +271,7 @@ function contractRows(contracts) {
     <td><a href="/contracts/${contract.id}"><strong>${esc(contract.contract_code)}</strong></a></td>
     <td><strong>${esc(contract.title)}</strong><br><span class="muted">${esc(contract.related_parties || 'Chưa gắn bên liên quan')}</span></td>
     <td>${statusBadge(currentContractStatus(contract))}</td>
-    <td>${money(contract.contract_value)}</td><td>${esc(contract.start_date || '—')}</td><td>${esc(contract.end_date || '—')}</td>
+    <td>${money(contract.contract_value)}</td><td>${esc(displayDate(contract.start_date) || '—')}</td><td>${esc(displayDate(contract.end_date) || '—')}</td>
     <td><div class="table-actions"><a class="button-link button-secondary" href="/contracts/${contract.id}">Chi tiết</a><a class="button-link button-secondary" href="/contracts/${contract.id}/edit">Sửa</a>
       <form class="inline-form" method="post" action="/contracts/${contract.id}/delete" onsubmit="return confirm('Xóa hợp đồng này?')"><button class="button-danger" type="submit">Xóa</button></form>
     </div></td>
@@ -231,6 +280,18 @@ function contractRows(contracts) {
 
 function contractTable(contracts) {
   return `<div class="table-wrap"><table><thead><tr><th>Mã</th><th>Hợp đồng / Bên liên quan</th><th>Trạng thái</th><th>Giá trị</th><th>Bắt đầu</th><th>Kết thúc</th><th>Thao tác</th></tr></thead><tbody>${contractRows(contracts)}</tbody></table></div>`;
+}
+
+function contractListTable(contracts) {
+  const rows = contracts.map(contract => {
+    const status = currentContractStatus(contract);
+    const endDate = formatDate(contract.end_date);
+    const today = new Date().toISOString().slice(0, 10);
+    const soon = status === 'Đang hiệu lực' && endDate && endDate >= today && endDate <= new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const displayStatus = soon ? 'Sắp hết hạn' : status;
+    return `<tr><td><a href="/contracts/${contract.id}">${esc(contract.contract_code)}</a></td><td>${esc(contract.title)}</td><td>${esc(contract.related_parties || '—')}</td><td>${esc(displayDate(endDate) || '—')}</td><td>${soon ? statusBadge(displayStatus).replace('status-draft', 'status-upcoming') : statusBadge(displayStatus)}</td><td>${money(contract.contract_value)}</td></tr>`;
+  }).join('') || emptyRow(6, 'Chưa có hợp đồng phù hợp.');
+  return `<div class="table-wrap"><table class="contract-list-table"><thead><tr><th>Mã HĐ</th><th>Tên hợp đồng</th><th>Bên liên quan</th><th>Ngày hết hạn</th><th>Trạng thái</th><th>Giá trị</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 async function getContract(id) {
@@ -267,8 +328,8 @@ function renderContractForm(contract = {}, parties = [], error = '') {
         <div><label for="contract-title">Tên hợp đồng *</label><input id="contract-title" name="title" required maxlength="200" value="${esc(contract.title)}" placeholder="Hợp đồng cung cấp dịch vụ"></div>
         <div><label for="party-ids">Bên liên quan *</label><select id="party-ids" name="party_ids" multiple required size="${Math.max(2, Math.min(5, parties.length))}">${options}</select><span class="field-hint">Chọn nhiều bên bằng Ctrl hoặc Cmd.</span></div>
         <div><label for="contract-value">Giá trị (VNĐ)</label><input id="contract-value" name="contract_value" type="number" min="0" max="999999999999.99" step="0.01" value="${esc(contract.contract_value ?? '0')}"></div>
-        <div><label for="start-date">Ngày bắt đầu</label><input id="start-date" name="start_date" type="date" value="${esc(contract.start_date || '')}"></div>
-        <div><label for="end-date">Ngày kết thúc</label><input id="end-date" name="end_date" type="date" value="${esc(contract.end_date || '')}"></div>
+        <div><label for="start-date">Ngày bắt đầu</label><input id="start-date" name="start_date" type="date" value="${esc(formatDate(contract.start_date))}"></div>
+        <div><label for="end-date">Ngày kết thúc</label><input id="end-date" name="end_date" type="date" value="${esc(formatDate(contract.end_date))}"></div>
         <div><label for="contract-status">Trạng thái</label><select id="contract-status" name="status">${statuses}</select></div>
         <div><label for="contract-notes">Ghi chú</label><textarea id="contract-notes" name="notes" maxlength="10000" placeholder="Thông tin bổ sung">${esc(contract.notes || '')}</textarea></div>
       </div>
@@ -346,11 +407,13 @@ app.post('/setup', async (req, res) => {
       await db.query('ROLLBACK');
       return res.redirect(303, '/login');
     }
-    const result = await db.query('INSERT INTO app_users(username, password_hash) VALUES($1, $2) RETURNING id', [username, passwordHash]);
+    const result = await db.query("INSERT INTO app_users(username, password_hash, role) VALUES($1, $2, 'admin') RETURNING id, role", [username, passwordHash]);
     await db.query('COMMIT');
     await regenerateSession(req);
     req.session.userId = result.rows[0].id;
     req.session.username = username;
+    req.session.role = result.rows[0].role;
+    userRoleCache.set(username, result.rows[0].role);
     await saveSession(req);
     res.redirect(303, '/');
   } catch (error) {
@@ -362,33 +425,107 @@ app.post('/setup', async (req, res) => {
   }
 });
 
-app.get('/login', async (req, res) => {
+app.get(['/login', '/admin/login'], async (req, res) => {
   try {
     if (!(await hasUsers())) return res.redirect('/setup');
-    if (req.session.userId) return res.redirect('/');
-    res.send(loginPage(req.query.error === '1'));
+    const role = req.path === '/admin/login' ? 'admin' : 'user';
+    if (req.session.userId && req.session.role === role) return res.redirect('/');
+    res.send(loginPage(req.query.error === '1', role));
   } catch (error) {
     console.error('Load login page failed:', error.message);
     res.status(500).send('Không thể tải trang đăng nhập.');
   }
 });
 
-app.post('/login', async (req, res) => {
+async function authenticateUser(req, res, requiredRole) {
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   try {
-    const result = await pool.query('SELECT id, username, password_hash FROM app_users WHERE username = $1', [username]);
+    const result = await pool.query('SELECT id, username, password_hash, role, is_active FROM app_users WHERE username = $1', [username]);
     const user = result.rows[0];
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.redirect(303, '/login?error=1');
+    if (!user || !user.is_active || user.role !== requiredRole || !(await bcrypt.compare(password, user.password_hash))) {
+      const loginPath = requiredRole === 'admin' ? '/admin/login' : '/login';
+      return res.redirect(303, `${loginPath}?error=1`);
+    }
     await regenerateSession(req);
     req.session.userId = user.id;
     req.session.username = user.username;
+    req.session.role = user.role;
+    userRoleCache.set(user.username, user.role);
     await saveSession(req);
     res.redirect(303, '/');
   } catch (error) {
     console.error('Login failed:', error.message);
     res.status(500).send('Không thể đăng nhập. Vui lòng thử lại.');
   }
+}
+
+app.post('/login', (req, res) => authenticateUser(req, res, 'user'));
+app.post('/admin/login', (req, res) => authenticateUser(req, res, 'admin'));
+
+app.get('/users', async (req, res) => {
+  const result = await pool.query('SELECT id, username, role, is_active, created_at FROM app_users ORDER BY role, username');
+  const rows = result.rows.map(user => `<tr><td>${esc(user.username)}</td><td>${user.role === 'admin' ? 'Quản trị viên' : 'Người dùng'}</td><td>${user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</td><td>${esc(user.created_at)}</td><td>${user.id === req.session.userId ? 'Tài khoản hiện tại' : `<form method="post" action="/users/${user.id}/toggle"><button class="${user.is_active ? 'button-danger' : 'button-secondary'}" type="submit">${user.is_active ? 'Khóa' : 'Mở khóa'}</button></form>`}</td></tr>`).join('');
+  res.send(page(`<section class="card">${pageHead('Quản lý người dùng', 'Tạo và khóa tài khoản người dùng.', '<a class="button-link" href="/users/new">Thêm người dùng</a>')}<div class="table-wrap"><table><thead><tr><th>Tên đăng nhập</th><th>Vai trò</th><th>Trạng thái</th><th>Ngày tạo</th><th>Thao tác</th></tr></thead><tbody>${rows || emptyRow(5, 'Chưa có tài khoản.')}</tbody></table></div></section>`, req.session.username, req.session.role, req.path));
+});
+
+app.get('/users/new', (req, res) => {
+  res.send(page(`<section class="card auth-card">${pageHead('Thêm người dùng', 'Tài khoản mới chỉ có quyền sử dụng nghiệp vụ.')}
+    <form method="post" action="/users"><div class="auth-field"><label for="new-username">Tên đăng nhập</label><input id="new-username" name="username" required maxlength="255" autocomplete="username"></div>
+    <div class="auth-field"><label for="new-password">Mật khẩu</label><input id="new-password" name="password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+    <button class="auth-submit" type="submit">Tạo tài khoản</button></form></section>`, req.session.username, req.session.role, req.path));
+});
+
+app.post('/users', async (req, res) => {
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  if (!username || Array.from(username).length > 255 || Buffer.byteLength(password, 'utf8') < 12 || Buffer.byteLength(password, 'utf8') > 72) {
+    return res.status(400).send(page('<section class="card"><div class="auth-error">Tên đăng nhập là bắt buộc (tối đa 255 ký tự), mật khẩu từ 12 đến 72 byte.</div><a href="/users/new">Quay lại</a></section>', req.session.username, req.session.role, req.path));
+  }
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    await pool.query("INSERT INTO app_users(username, password_hash, role) VALUES($1, $2, 'user')", [username, passwordHash]);
+    userRoleCache.set(username, 'user');
+    res.redirect(303, '/users');
+  } catch (error) {
+    const message = error.code === '23505' ? 'Tên đăng nhập đã tồn tại.' : 'Không thể tạo tài khoản.';
+    res.status(error.code === '23505' ? 409 : 500).send(page(`<section class="card"><div class="auth-error">${esc(message)}</div><a href="/users/new">Quay lại</a></section>`, req.session.username, req.session.role, req.path));
+  }
+});
+
+app.post('/users/:id/toggle', async (req, res) => {
+  await pool.query('UPDATE app_users SET is_active = NOT is_active WHERE id=$1 AND id<>$2 AND role<>\'admin\'', [req.params.id, req.session.userId]);
+  res.redirect(303, '/users');
+});
+
+app.get('/settings', (req, res) => {
+  const error = req.query.error ? '<div class="auth-error">Mật khẩu hiện tại không đúng hoặc mật khẩu mới không hợp lệ.</div>' : '';
+  const success = req.query.updated ? '<div class="alert">Mật khẩu đã được cập nhật.</div>' : '';
+  res.send(page(`<section class="card auth-card">${pageHead('Cài đặt tài khoản', 'Đổi mật khẩu đăng nhập.')}${error}${success}
+    <form method="post" action="/settings/password">
+      <div class="auth-field"><label for="current-password">Mật khẩu hiện tại</label><input id="current-password" name="current_password" type="password" required autocomplete="current-password"></div>
+      <div class="auth-field"><label for="new-password">Mật khẩu mới</label><input id="new-password" name="new_password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+      <div class="auth-field"><label for="confirm-password">Nhập lại mật khẩu mới</label><input id="confirm-password" name="confirm_password" type="password" required minlength="12" maxlength="72" autocomplete="new-password"></div>
+      <button class="auth-submit" type="submit">Cập nhật mật khẩu</button>
+    </form></section>`, req.session.username, req.session.role, req.path));
+});
+
+app.post('/settings/password', async (req, res) => {
+  const currentPassword = String(req.body.current_password || '');
+  const newPassword = String(req.body.new_password || '');
+  const confirmPassword = String(req.body.confirm_password || '');
+  const account = await pool.query('SELECT id, username, role, password_hash FROM app_users WHERE id=$1 AND is_active=TRUE', [req.session.userId]);
+  if (!account.rowCount || !(await bcrypt.compare(currentPassword, account.rows[0].password_hash))
+      || Buffer.byteLength(newPassword, 'utf8') < 12 || Buffer.byteLength(newPassword, 'utf8') > 72
+      || newPassword !== confirmPassword) return res.redirect(303, '/settings?error=1');
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await pool.query('UPDATE app_users SET password_hash=$1 WHERE id=$2', [passwordHash, req.session.userId]);
+  await regenerateSession(req);
+  req.session.userId = account.rows[0].id;
+  req.session.username = account.rows[0].username;
+  req.session.role = account.rows[0].role;
+  await saveSession(req);
+  res.redirect(303, '/settings?updated=1');
 });
 
 app.post('/logout', (req, res) => {
@@ -473,15 +610,16 @@ app.get('/contracts', async (req, res) => {
     const parties = await getCounterparties();
     const statusOptions = contractStatuses.map(status => `<option value="${esc(status)}" ${req.query.status === status ? 'selected' : ''}>${esc(status)}</option>`).join('');
     const partyOptions = parties.map(party => `<option value="${party.id}" ${Number(req.query.counterparty) === party.id ? 'selected' : ''}>${esc(party.name)}</option>`).join('');
-    const filters = `<form class="filter-grid" method="get">
-      <div><label for="filter-q">Từ khóa</label><input id="filter-q" name="q" value="${esc(req.query.q || '')}" placeholder="Mã, tên, bên liên quan"></div>
+    const hasAdvancedFilter = Boolean(req.query.status || req.query.counterparty || req.query.from || req.query.to);
+    const filters = `<details class="filter-details" ${hasAdvancedFilter ? 'open' : ''}><summary>Bộ lọc nâng cao</summary><form class="filter-grid" method="get">
+      <input type="hidden" name="q" value="${esc(req.query.q || '')}">
       <div><label for="filter-status">Trạng thái</label><select id="filter-status" name="status"><option value="">Tất cả</option>${statusOptions}</select></div>
       <div><label for="filter-party">Bên liên quan</label><select id="filter-party" name="counterparty"><option value="">Tất cả</option>${partyOptions}</select></div>
       <div><label for="filter-from">Từ ngày</label><input id="filter-from" name="from" type="date" value="${esc(req.query.from || '')}"></div>
       <div><label for="filter-to">Đến ngày</label><input id="filter-to" name="to" type="date" value="${esc(req.query.to || '')}"></div>
       <div class="actions"><button type="submit">Lọc</button><a class="button-link button-secondary" href="/contracts">Xóa lọc</a></div>
-    </form>`;
-    res.send(page(`<section class="card">${pageHead('Hợp đồng', `${result.rowCount} kết quả`, '<a class="button-link" href="/contracts/new">Thêm hợp đồng</a>')}${filters}</section><section class="card">${contractTable(result.rows)}</section>`, req.session.username));
+    </form></details>`;
+    res.send(page(`<p class="contract-intro">Danh sách, tìm kiếm và lọc hợp đồng</p><section class="card contract-list-card"><div class="contracts-toolbar"><form class="contract-search" method="get"><label class="sr-only" for="contract-search">Tìm kiếm hợp đồng</label><input id="contract-search" name="q" value="${esc(req.query.q || '')}" placeholder="Tìm kiếm hợp đồng..."/><button type="submit">Tìm kiếm</button></form><a class="button-link" href="/contracts/new">＋ Thêm mới</a></div>${filters}<div class="muted" style="margin-bottom:10px">${result.rowCount} hợp đồng</div>${contractListTable(result.rows)}</section>`, req.session.username, req.session.role, req.originalUrl));
   } catch (error) {
     console.error('List contracts failed:', error.message);
     res.status(500).send(page('<section class="card"><h2>Không thể tải danh sách hợp đồng.</h2></section>', req.session.username));
@@ -584,14 +722,17 @@ app.get('/contracts/:id', async (req, res) => {
   if (!contract) return res.status(404).send(page('<section class="card"><h2>Không tìm thấy hợp đồng.</h2></section>', req.session.username));
   const parties = contract.parties.map(party => `<div class="detail-item"><a class="detail-value" href="/counterparties/${party.id}/edit">${esc(party.name)}</a><span class="detail-label">${esc([party.email, party.phone, party.address].filter(Boolean).join(' · ') || 'Chưa có thông tin liên hệ')}</span></div>`).join('');
   const expired = currentContractStatus(contract) === 'Hết hạn' ? '<div class="notice-danger">Hợp đồng đã hết hạn. Kiểm tra kế hoạch gia hạn.</div>' : '';
-  const soon = contract.status === 'Đang hiệu lực' && contract.end_date && new Date(contract.end_date) >= new Date() && new Date(contract.end_date) <= new Date(Date.now() + 30 * 86400000)
+  const endDate = formatDate(contract.end_date);
+  const today = new Date().toISOString().slice(0, 10);
+  const next30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const soon = contract.status === 'Đang hiệu lực' && endDate && endDate >= today && endDate <= next30
     ? '<div class="notice-warning">Hợp đồng sẽ hết hạn trong 30 ngày tới.</div>' : '';
   res.send(page(`<section class="card">${pageHead(`Hợp đồng ${contract.contract_code}`, contract.title, `<a class="button-link button-secondary" href="/contracts">Danh sách</a><a class="button-link" href="/contracts/${contract.id}/edit">Chỉnh sửa</a>`)}${expired}${soon}
     <div class="detail-grid">
       <div class="detail-item"><span class="detail-label">Trạng thái</span><span class="detail-value">${statusBadge(currentContractStatus(contract))}</span></div>
       <div class="detail-item"><span class="detail-label">Giá trị</span><span class="detail-value">${money(contract.contract_value)}</span></div>
-      <div class="detail-item"><span class="detail-label">Ngày bắt đầu</span><span class="detail-value">${esc(contract.start_date || '—')}</span></div>
-      <div class="detail-item"><span class="detail-label">Ngày kết thúc</span><span class="detail-value">${esc(contract.end_date || '—')}</span></div>
+      <div class="detail-item"><span class="detail-label">Ngày bắt đầu</span><span class="detail-value">${esc(displayDate(contract.start_date) || '—')}</span></div>
+      <div class="detail-item"><span class="detail-label">Ngày kết thúc</span><span class="detail-value">${esc(displayDate(contract.end_date) || '—')}</span></div>
       <div class="detail-item"><span class="detail-label">Tạo lúc</span><span class="detail-value">${esc(contract.created_at)}</span></div>
       <div class="detail-item"><span class="detail-label">Cập nhật lúc</span><span class="detail-value">${esc(contract.updated_at)}</span></div>
     </div><h3>Bên liên quan</h3><div class="detail-grid">${parties || '<div class="empty-state">Chưa gắn bên liên quan.</div>'}</div>
@@ -719,7 +860,7 @@ app.get('/reports/export.csv', async (req, res) => {
     FROM contracts c LEFT JOIN contract_parties cp ON cp.contract_id=c.id LEFT JOIN counterparties p ON p.id=cp.counterparty_id
     WHERE EXTRACT(YEAR FROM c.created_at)=$1 GROUP BY c.id ORDER BY c.created_at DESC`, [year]);
   const headers = ['Mã hợp đồng','Tên hợp đồng','Trạng thái','Giá trị','Ngày bắt đầu','Ngày kết thúc','Bên liên quan','Email','Ghi chú','Ngày tạo'];
-  const lines = [headers, ...result.rows.map(row => [row.contract_code,row.title,currentContractStatus(row),row.contract_value,row.start_date,row.end_date,row.parties,row.emails,row.notes,row.created_at])]
+  const lines = [headers, ...result.rows.map(row => [row.contract_code,row.title,currentContractStatus(row),row.contract_value,formatDate(row.start_date),formatDate(row.end_date),row.parties,row.emails,row.notes,row.created_at])]
     .map(row => row.map(csvCell).join(',')).join('\r\n');
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="contracts-${year}.csv"` });
   res.send(`\uFEFF${lines}`);
